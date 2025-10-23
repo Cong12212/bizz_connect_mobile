@@ -1,0 +1,873 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
+
+// Tags
+import '../../tags/data/tags_repository.dart';
+import '../../tags/data/tag_models.dart' as tagm;
+
+// Contacts
+import '../controller/contacts_list_controller.dart';
+import '../data/models.dart';
+import '../data/contacts_repository.dart';
+
+import '../../reminders/view/create_reminder_dialog.dart';
+
+enum _Mode { view, edit, create }
+
+enum _TagSheetResult { updated, manage, closed }
+
+class ContactDetailModal extends ConsumerStatefulWidget {
+  const ContactDetailModal._({
+    this.initialContact,
+    required this.mode,
+    super.key,
+  });
+
+  const ContactDetailModal.initialView({required Contact contact, Key? key})
+    : this._(initialContact: contact, mode: _Mode.view, key: key);
+
+  const ContactDetailModal.initialCreate({Key? key})
+    : this._(initialContact: null, mode: _Mode.create, key: key);
+
+  final Contact? initialContact;
+  final _Mode mode;
+
+  @override
+  ConsumerState<ContactDetailModal> createState() => _ContactDetailModalState();
+}
+
+class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
+  late _Mode _mode;
+  Contact? _contact;
+
+  // form controllers
+  final _name = TextEditingController();
+  final _job = TextEditingController();
+  final _company = TextEditingController();
+  final _email = TextEditingController();
+  final _phone = TextEditingController();
+  final _address = TextEditingController();
+  final _notes = TextEditingController();
+  final _linkedin = TextEditingController();
+  final _website = TextEditingController();
+
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _mode = widget.mode;
+    _contact = widget.initialContact;
+    _fillFromContact(widget.initialContact);
+  }
+
+  void _fillFromContact(Contact? c) {
+    if (c == null) return;
+    _name.text = c.name;
+    _job.text = c.jobTitle ?? '';
+    _company.text = c.company ?? '';
+    _email.text = c.email ?? '';
+    _phone.text = c.phone ?? '';
+    _address.text = c.address ?? '';
+    _notes.text = c.notes ?? '';
+    _linkedin.text = c.linkedinUrl ?? '';
+    _website.text = c.websiteUrl ?? '';
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _job.dispose();
+    _company.dispose();
+    _email.dispose();
+    _phone.dispose();
+    _address.dispose();
+    _notes.dispose();
+    _linkedin.dispose();
+    _website.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_name.text.trim().isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Name is required')));
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final repo = ref.read(contactsRepositoryProvider);
+      final payload = {
+        'name': _name.text.trim(),
+        'job_title': _job.text.trim(),
+        'company': _company.text.trim(),
+        'email': _email.text.trim(),
+        'phone': _phone.text.trim(),
+        'address': _address.text.trim(),
+        'notes': _notes.text.trim(),
+        'linkedin_url': _linkedin.text.trim(),
+        'website_url': _website.text.trim(),
+      };
+
+      Contact result;
+      if (_mode == _Mode.create) {
+        result = await repo.createContact(payload);
+      } else {
+        result = await repo.updateContact(_contact!.id, payload);
+      }
+      setState(() => _contact = result);
+      if (mounted) Navigator.pop<Contact?>(context, result);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _addReminder() async {
+    final c = _contact;
+    if (c == null) return;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => CreateReminderDialog(defaultContactId: c.id),
+    );
+    if (ok == true && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Reminder created')));
+    }
+  }
+
+  void _manageReminders() {
+    final c = _contact;
+    if (c == null) return;
+
+    final router = GoRouter.of(context);
+    // Đóng modal trước rồi mới điều hướng
+    Navigator.pop(context, _contact);
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // truyền contactId qua query
+      router.push('/contacts/reminders');
+    });
+  }
+
+  Future<void> _delete() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Delete this contact?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      final repo = ref.read(contactsRepositoryProvider);
+      await repo.deleteContact(widget.initialContact!.id);
+      if (mounted) Navigator.pop<Contact?>(context, null);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
+  }
+
+  // ---------- TAGS ----------
+
+  Future<void> _detachTagQuick(int tagId) async {
+    final c = _contact;
+    if (c == null) return;
+
+    try {
+      final repo = ref.read(contactsRepositoryProvider);
+      await repo.detachTag(c.id, tagId);
+
+      final fresh = await repo.getContact(c.id);
+      if (!mounted) return;
+      setState(() => _contact = fresh);
+
+      // Cập nhật lại contact trong list bên ngoài
+      ref.read(contactsListControllerProvider.notifier).refreshContact(fresh);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed: $e')));
+    }
+  }
+
+  Future<void> _openSelectTags() async {
+    final c = _contact;
+    if (c == null) return;
+
+    final result = await showModalBottomSheet<_TagSheetResult>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _SelectTagsSheet(
+        contactId: c.id,
+        initialIds: (c.tags ?? []).map((t) => t.id).toList(),
+      ),
+    );
+
+    if (!mounted || result == null) return;
+
+    if (result == _TagSheetResult.manage) {
+      // ✅ điều hướng sau khi sheet đã đóng
+      GoRouter.of(context).push('/contacts/tags');
+      return;
+    }
+
+    if (result == _TagSheetResult.updated) {
+      final repo = ref.read(contactsRepositoryProvider);
+      final fresh = await repo.getContact(c.id);
+      setState(() => _contact = fresh);
+      ref.read(contactsListControllerProvider.notifier).refreshContact(fresh);
+    }
+  }
+  // ---------- END TAGS ----------
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = _mode == _Mode.edit || _mode == _Mode.create;
+    final title = switch (_mode) {
+      _Mode.create => 'New contact',
+      _Mode.edit => 'Edit contact',
+      _Mode.view => 'Contact details',
+    };
+
+    return GestureDetector(
+      onTap: () => FocusScope.of(context).unfocus(),
+      child: Container(
+        color: Colors.transparent,
+        child: FractionallySizedBox(
+          heightFactor: 0.95,
+          widthFactor: 1,
+          alignment: Alignment.bottomCenter,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Material(
+                color: Colors.white,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.max,
+                  children: [
+                    // Top bar
+                    Container(
+                      height: 52,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      decoration: const BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: Color(0xFFE5E7EB)),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          TextButton(
+                            onPressed: () {
+                              Navigator.pop<Contact?>(context, _contact);
+                            },
+                            child: const Text('Close'),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (isEditing)
+                            SizedBox(
+                              height: 36,
+                              child: FilledButton(
+                                onPressed: _saving ? null : _save,
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                  ),
+                                  minimumSize: const Size(64, 36),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: _saving
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text('Save'),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+
+                    // Body
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          top: 12,
+                          bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+                        ),
+                        child: isEditing ? _buildForm() : _buildView(),
+                      ),
+                    ),
+
+                    // Bottom actions khi view
+                    if (!isEditing && _contact != null)
+                      SafeArea(
+                        top: false,
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: OutlinedButton(
+                                  onPressed: _delete,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFDC2626),
+                                    side: const BorderSide(
+                                      color: Color(0xFFFCA5A5),
+                                    ),
+                                  ),
+                                  child: const Text('Delete'),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: FilledButton(
+                                  onPressed: () =>
+                                      setState(() => _mode = _Mode.edit),
+                                  child: const Text('Edit'),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildView() {
+    final c = _contact!;
+    final chips = (c.tags ?? [])
+        .map(
+          (t) => InputChip(
+            label: Text('#${t.name}', style: const TextStyle(fontSize: 11)),
+            onDeleted: () => _detachTagQuick(t.id),
+            visualDensity: VisualDensity.compact,
+            side: const BorderSide(color: Color(0xFFE5E7EB)),
+            backgroundColor: const Color(0xFFF8FAFC),
+          ),
+        )
+        .toList();
+
+    Widget row(String label, String? value) {
+      final v = (value ?? '').trim();
+      return Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 120,
+              child: Text(
+                label,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: v.isEmpty ? const SizedBox.shrink() : Text(v)),
+          ],
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _Avatar(name: c.name, size: 64),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    c.name,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if ((c.company ?? c.jobTitle) != null)
+                    Text(
+                      [
+                        c.jobTitle,
+                        c.company,
+                      ].where((e) => (e ?? '').isNotEmpty).join(' · '),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF64748B),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    children: chips.isEmpty
+                        ? const [
+                            Text(
+                              'No tags',
+                              style: TextStyle(
+                                color: Color(0xFF94A3B8),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ]
+                        : chips,
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Row(
+                  //   mainAxisSize: MainAxisSize.min,
+                  //   children: [
+                  //     Flexible(
+                  //       child: FilledButton.icon(
+                  //         icon: const Icon(Icons.label_outline, size: 16),
+                  //         label: const Text(
+                  //           'Add / Remove tags',
+                  //           overflow: TextOverflow.ellipsis,
+                  //         ),
+                  //         onPressed: _openSelectTags,
+                  //         style: FilledButton.styleFrom(
+                  //           padding: const EdgeInsets.symmetric(
+                  //             horizontal: 12,
+                  //             vertical: 8,
+                  //           ),
+                  //         ),
+                  //       ),
+                  //     ),
+                  //     const SizedBox(width: 8),
+                  //     TextButton.icon(
+                  //       icon: const Icon(Icons.settings_outlined, size: 18),
+                  //       label: const Text('Quản lý'),
+                  //       onPressed: () {
+                  //         final router = GoRouter.of(context);
+
+                  //         Navigator.pop(context, _contact);
+
+                  //         WidgetsBinding.instance.addPostFrameCallback((_) {
+                  //           router.push('/contacts/tags');
+                  //         });
+                  //       },
+                  //     ),
+                  //   ],
+                  // ),
+                  // Hàng hành động gọn: icon + (caption nhỏ) hoặc chỉ icon
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      _ActionIcon(
+                        icon: Icons.label_outline,
+                        label: 'Tags',
+                        onTap: _openSelectTags,
+                        showCaption: true, // đổi false nếu muốn chỉ icon
+                      ),
+                      _ActionIcon(
+                        icon: Icons.settings_outlined,
+                        label: 'Manage tags',
+                        onTap: () {
+                          final router = GoRouter.of(context);
+                          Navigator.pop(context, _contact);
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            router.push('/contacts/tags');
+                          });
+                        },
+                        showCaption: true,
+                      ),
+                      _ActionIcon(
+                        icon: Icons.add_alarm,
+                        label: 'Add reminder',
+                        onTap: _addReminder,
+                        showCaption: true,
+                      ),
+                      _ActionIcon(
+                        icon: Icons.event_note,
+                        label: 'Reminders',
+                        onTap: _manageReminders,
+                        showCaption: true,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        row('Job Title', c.jobTitle),
+        row('Company', c.company),
+        row('Email', c.email),
+        row('Phone', c.phone),
+        row('Address', c.address),
+        row('Notes', c.notes),
+        row('LinkedIn', c.linkedinUrl),
+        row('Website', c.websiteUrl),
+      ],
+    );
+  }
+
+  Widget _buildForm() {
+    Widget f(String label, TextEditingController c, {TextInputType? type}) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: c,
+            keyboardType: type,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        f('Name *', _name),
+        f('Job Title', _job),
+        f('Company', _company),
+        f('Email', _email, type: TextInputType.emailAddress),
+        f('Phone', _phone, type: TextInputType.phone),
+        f('Address', _address),
+        f('Notes', _notes),
+        f('LinkedIn URL', _linkedin, type: TextInputType.url),
+        f('Website URL', _website, type: TextInputType.url),
+      ],
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  const _Avatar({required this.name, this.size = 56});
+  final String name;
+  final double size;
+
+  String get initials {
+    final parts = name.split(' ').where((e) => e.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    return parts.take(2).map((s) => s[0].toUpperCase()).join();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      alignment: Alignment.center,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+        color: Color(0xFFE2E8F0),
+      ),
+      child: Text(
+        initials,
+        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
+      ),
+    );
+  }
+}
+
+class _ActionIcon extends StatelessWidget {
+  const _ActionIcon({
+    required this.icon,
+    required this.onTap,
+    this.label,
+    this.showCaption = true, // đặt false nếu muốn chỉ icon
+    super.key,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String? label;
+  final bool showCaption;
+
+  @override
+  Widget build(BuildContext context) {
+    final iconBtn = IconButton(
+      onPressed: onTap,
+      icon: Icon(icon, size: 20),
+      tooltip: label, // hiện hover title
+      style: IconButton.styleFrom(
+        padding: const EdgeInsets.all(10),
+        minimumSize: const Size(40, 40),
+      ),
+    );
+
+    if (!showCaption || (label == null)) return iconBtn;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        iconBtn,
+        Text(
+          label!,
+          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
+    );
+  }
+}
+
+/// Bottom sheet: chọn, gắn, tháo tag; có nút "Quản lý" → /tags
+class _SelectTagsSheet extends ConsumerStatefulWidget {
+  const _SelectTagsSheet({required this.contactId, required this.initialIds});
+  final int contactId;
+  final List<int> initialIds;
+
+  @override
+  ConsumerState<_SelectTagsSheet> createState() => _SelectTagsSheetState();
+}
+
+class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
+  final _searchCtrl = TextEditingController();
+  final Set<int> _selected = {};
+  List<tagm.Tag> _available = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _selected.addAll(widget.initialIds);
+    _load();
+  }
+
+  Future<void> _load({String q = ''}) async {
+    setState(() => _loading = true);
+    final repo = ref.read(tagsRepositoryProvider);
+    final res = await repo.listTags(q: q, page: 1);
+    setState(() {
+      _available = res.data;
+      _loading = false;
+    });
+  }
+
+  Future<void> _apply() async {
+    final contactsRepo = ref.read(contactsRepositoryProvider);
+
+    final initial = widget.initialIds.toSet();
+    final now = _selected.toSet();
+    final toAdd = now.difference(initial).toList();
+    final toRemove = initial.difference(now).toList();
+
+    if (toAdd.isNotEmpty) {
+      await contactsRepo.attachTags(widget.contactId, ids: toAdd);
+    }
+    for (final id in toRemove) {
+      await contactsRepo.detachTag(widget.contactId, id);
+    }
+    if (mounted)
+      Navigator.pop<_TagSheetResult>(context, _TagSheetResult.updated);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = _loading
+        ? const Center(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        : ListView.builder(
+            shrinkWrap: true,
+            itemCount: _available.length,
+            itemBuilder: (_, i) {
+              final t = _available[i];
+              final checked = _selected.contains(t.id);
+              return CheckboxListTile(
+                value: checked,
+                title: Text(t.name),
+                subtitle: Text('${t.contactsCount} contacts'),
+                onChanged: (v) {
+                  setState(() {
+                    if (v == true) {
+                      _selected.add(t.id);
+                    } else {
+                      _selected.remove(t.id);
+                    }
+                  });
+                },
+              );
+            },
+          );
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                child: Row(
+                  children: [
+                    const Text(
+                      'Chọn tag',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton.icon(
+                      icon: const Icon(Icons.settings_outlined, size: 18),
+                      label: const Text('Quản lý'),
+                      onPressed: () {
+                        Navigator.pop<_TagSheetResult>(
+                          context,
+                          _TagSheetResult.manage,
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              // Search
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: TextField(
+                  controller: _searchCtrl,
+                  decoration: InputDecoration(
+                    hintText: 'Tìm tag…',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.refresh, size: 20),
+                      onPressed: () => _load(q: _searchCtrl.text),
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                  ),
+                  onSubmitted: (v) => _load(q: v),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // List với chiều cao giới hạn (tránh unbounded)
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.5,
+                ),
+                child: list,
+              ),
+
+              const Divider(height: 1),
+              // Buttons
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop<_TagSheetResult>(
+                          context,
+                          _TagSheetResult.closed,
+                        ),
+                        child: const Text('Đóng'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: FilledButton(
+                        onPressed: _apply,
+                        child: const Text('Áp dụng'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
