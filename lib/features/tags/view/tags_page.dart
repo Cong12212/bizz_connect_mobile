@@ -29,7 +29,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Quản lý Tag'),
+        title: const Text('Manage Tags'),
         backgroundColor: Colors.blue,
       ),
       body: Padding(
@@ -42,7 +42,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
                 Expanded(
                   child: TextField(
                     decoration: const InputDecoration(
-                      hintText: 'Tìm tag…',
+                      hintText: 'Search tags…',
                       prefixIcon: Icon(Icons.search),
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(
@@ -59,7 +59,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
                   child: TextField(
                     controller: _createCtrl,
                     decoration: const InputDecoration(
-                      hintText: 'Tên tag mới',
+                      hintText: 'New tag name',
                       border: OutlineInputBorder(),
                       contentPadding: EdgeInsets.symmetric(
                         horizontal: 12,
@@ -72,7 +72,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
                 const SizedBox(width: 8),
                 ElevatedButton(
                   onPressed: state.loading ? null : () => _create(notifier),
-                  child: const Text('Thêm'),
+                  child: const Text('Add'),
                 ),
               ],
             ),
@@ -88,14 +88,14 @@ class _TagsPageState extends ConsumerState<TagsPage> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Text('Lỗi: ${state.error}'),
+                            Text('Error: ${state.error}'),
                             const SizedBox(height: 16),
                             ElevatedButton(
-                              // Cách 1:
+                              // Option 1:
                               onPressed: () => notifier.reload(),
-                              // Cách 2 (tự build lại hoàn toàn):
+                              // Option 2 (completely rebuild):
                               // onPressed: () => ref.invalidate(tagsListControllerProvider),
-                              child: const Text('Thử lại'),
+                              child: const Text('Retry'),
                             ),
                           ],
                         ),
@@ -136,7 +136,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
 
   Widget _buildList(List<Tag> items, TagsListController notifier) {
     if (items.isEmpty) {
-      return const Center(child: Text('Chưa có tag nào'));
+      return const Center(child: Text('No tags yet'));
     }
 
     return ListView.separated(
@@ -146,7 +146,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
         final t = items[i];
         final editing = _editingId == t.id;
 
-        // ⬇️ SỬA: Tách biệt edit mode và view mode
+        // Separate edit mode and view mode
         if (editing) {
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -185,7 +185,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
           );
         }
 
-        //View mode - ListTile bình thường
+        // View mode - normal ListTile
         return ListTile(
           leading: Text('#${t.id}', style: const TextStyle(color: Colors.grey)),
           title: Text(
@@ -221,7 +221,7 @@ class _TagsPageState extends ConsumerState<TagsPage> {
     if (name.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Vui lòng nhập tên tag')));
+      ).showSnackBar(const SnackBar(content: Text('Please enter tag name')));
       return;
     }
 
@@ -232,12 +232,12 @@ class _TagsPageState extends ConsumerState<TagsPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Đã tạo tag "$name"')));
+      ).showSnackBar(SnackBar(content: Text('Created tag "$name"')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -253,12 +253,12 @@ class _TagsPageState extends ConsumerState<TagsPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Đã đổi tên thành "$name"')));
+      ).showSnackBar(SnackBar(content: Text('Renamed to "$name"')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 
@@ -266,17 +266,17 @@ class _TagsPageState extends ConsumerState<TagsPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('Xác nhận xóa'),
-        content: Text('Bạn muốn xóa tag "${t.name}"?'),
+        title: const Text('Confirm Delete'),
+        content: Text('Do you want to delete tag "${t.name}"?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Hủy'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             style: FilledButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Xóa'),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -290,12 +290,12 @@ class _TagsPageState extends ConsumerState<TagsPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Đã xóa tag "${t.name}"')));
+      ).showSnackBar(SnackBar(content: Text('Deleted tag "${t.name}"')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
   }
 }

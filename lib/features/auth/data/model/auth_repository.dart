@@ -87,4 +87,20 @@ class AuthRepository {
       data: {'email': email, 'code': code},
     );
   }
+
+  /// PATCH /auth/me - Update current user profile
+  /// Payload: { name?, email?, password? }
+  /// Returns: User object
+  Future<User> updateMe({String? name, String? email, String? password}) async {
+    final payload = <String, dynamic>{};
+    if (name != null) payload['name'] = name;
+    if (email != null) payload['email'] = email;
+    if (password != null) payload['password'] = password;
+
+    final res = await _api.dio.patch('/auth/me', data: payload);
+
+    // Parse response to User model
+    final data = res.data as Map<String, dynamic>;
+    return User.fromJson(data);
+  }
 }

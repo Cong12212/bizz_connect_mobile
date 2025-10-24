@@ -22,7 +22,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
   @override
   void initState() {
     super.initState();
-    // load lần đầu
+    // Load initial data
     Future.microtask(() {
       ref.read(contactsListControllerProvider.notifier).load();
     });
@@ -52,7 +52,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
       builder: (_) => ContactDetailModal.initialView(contact: c),
     );
 
-    // Chỉ refresh item thay vì reload toàn bộ
+    // Only refresh specific item instead of reloading all
     if (updated != null && mounted) {
       ref.read(contactsListControllerProvider.notifier).refreshContact(updated);
     }
@@ -304,7 +304,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
 
     final list = Column(
       children: [
-        // header
+        // Header
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
           child: Align(
@@ -315,7 +315,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
             ),
           ),
         ),
-        // list body
+        // List body
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
@@ -439,7 +439,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                   ),
           ),
         ),
-        // pager
+        // Pager
         Container(
           decoration: const BoxDecoration(
             color: Colors.white,

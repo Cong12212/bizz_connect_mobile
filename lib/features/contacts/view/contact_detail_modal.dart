@@ -149,11 +149,11 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     if (c == null) return;
 
     final router = GoRouter.of(context);
-    // Đóng modal trước rồi mới điều hướng
+    // Close modal before navigation
     Navigator.pop(context, _contact);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // truyền contactId qua query
+      // Pass contactId via query
       router.push('/contacts/reminders');
     });
   }
@@ -202,7 +202,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
       if (!mounted) return;
       setState(() => _contact = fresh);
 
-      // Cập nhật lại contact trong list bên ngoài
+      // Update contact in external list
       ref.read(contactsListControllerProvider.notifier).refreshContact(fresh);
     } catch (e) {
       if (!mounted) return;
@@ -230,7 +230,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     if (!mounted || result == null) return;
 
     if (result == _TagSheetResult.manage) {
-      // ✅ điều hướng sau khi sheet đã đóng
+      // Navigate after sheet is closed
       GoRouter.of(context).push('/contacts/tags');
       return;
     }
@@ -474,42 +474,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                   ),
                   const SizedBox(height: 8),
 
-                  // Row(
-                  //   mainAxisSize: MainAxisSize.min,
-                  //   children: [
-                  //     Flexible(
-                  //       child: FilledButton.icon(
-                  //         icon: const Icon(Icons.label_outline, size: 16),
-                  //         label: const Text(
-                  //           'Add / Remove tags',
-                  //           overflow: TextOverflow.ellipsis,
-                  //         ),
-                  //         onPressed: _openSelectTags,
-                  //         style: FilledButton.styleFrom(
-                  //           padding: const EdgeInsets.symmetric(
-                  //             horizontal: 12,
-                  //             vertical: 8,
-                  //           ),
-                  //         ),
-                  //       ),
-                  //     ),
-                  //     const SizedBox(width: 8),
-                  //     TextButton.icon(
-                  //       icon: const Icon(Icons.settings_outlined, size: 18),
-                  //       label: const Text('Quản lý'),
-                  //       onPressed: () {
-                  //         final router = GoRouter.of(context);
-
-                  //         Navigator.pop(context, _contact);
-
-                  //         WidgetsBinding.instance.addPostFrameCallback((_) {
-                  //           router.push('/contacts/tags');
-                  //         });
-                  //       },
-                  //     ),
-                  //   ],
-                  // ),
-                  // Hàng hành động gọn: icon + (caption nhỏ) hoặc chỉ icon
+                  // Compact action row: icon + (small caption) or icon only
                   Wrap(
                     spacing: 8,
                     runSpacing: 4,
@@ -646,7 +611,7 @@ class _ActionIcon extends StatelessWidget {
     required this.icon,
     required this.onTap,
     this.label,
-    this.showCaption = true, // đặt false nếu muốn chỉ icon
+    this.showCaption = true, // Set false for icon-only
     super.key,
   });
 
@@ -660,7 +625,7 @@ class _ActionIcon extends StatelessWidget {
     final iconBtn = IconButton(
       onPressed: onTap,
       icon: Icon(icon, size: 20),
-      tooltip: label, // hiện hover title
+      tooltip: label, // Show hover title
       style: IconButton.styleFrom(
         padding: const EdgeInsets.all(10),
         minimumSize: const Size(40, 40),
@@ -683,7 +648,7 @@ class _ActionIcon extends StatelessWidget {
   }
 }
 
-/// Bottom sheet: chọn, gắn, tháo tag; có nút "Quản lý" → /tags
+/// Bottom sheet: select, attach, detach tags; with "Manage" button → /tags
 class _SelectTagsSheet extends ConsumerStatefulWidget {
   const _SelectTagsSheet({required this.contactId, required this.initialIds});
   final int contactId;
@@ -785,7 +750,7 @@ class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
                 child: Row(
                   children: [
                     const Text(
-                      'Chọn tag',
+                      'Select tags',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -794,7 +759,7 @@ class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
                     const Spacer(),
                     TextButton.icon(
                       icon: const Icon(Icons.settings_outlined, size: 18),
-                      label: const Text('Quản lý'),
+                      label: const Text('Manage'),
                       onPressed: () {
                         Navigator.pop<_TagSheetResult>(
                           context,
@@ -811,7 +776,7 @@ class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
                 child: TextField(
                   controller: _searchCtrl,
                   decoration: InputDecoration(
-                    hintText: 'Tìm tag…',
+                    hintText: 'Search tags…',
                     prefixIcon: const Icon(Icons.search, size: 20),
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.refresh, size: 20),
@@ -831,7 +796,7 @@ class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
               ),
               const SizedBox(height: 8),
 
-              // List với chiều cao giới hạn (tránh unbounded)
+              // List with limited height (avoid unbounded)
               ConstrainedBox(
                 constraints: BoxConstraints(
                   maxHeight: MediaQuery.of(context).size.height * 0.5,
@@ -851,14 +816,14 @@ class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
                           context,
                           _TagSheetResult.closed,
                         ),
-                        child: const Text('Đóng'),
+                        child: const Text('Close'),
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: FilledButton(
                         onPressed: _apply,
-                        child: const Text('Áp dụng'),
+                        child: const Text('Apply'),
                       ),
                     ),
                   ],

@@ -20,14 +20,14 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
   bool _initedByQuery = false;
 
   @override
-  bool get wantKeepAlive => true; // giữ state trang khi rời/đi về
+  bool get wantKeepAlive => true; // keep state when navigating away
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_initedByQuery) return;
 
-    // Đọc query chỉ 1 lần (nếu có contactId thì filter theo contact)
+    // Read query only once (if contactId exists, filter by contact)
     final location = GoRouterState.of(context).uri.toString();
     final uri = Uri.parse(location);
     final cidStr = uri.queryParameters['contactId'];
@@ -39,7 +39,7 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
           contactId: cid,
           page: 1,
         );
-        // refresh theo filter mới
+        // refresh with new filter
         ref.read(remindersListProvider.notifier).refresh();
       }
     }
@@ -48,7 +48,7 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // cần gọi khi dùng AutomaticKeepAliveClientMixin
+    super.build(context); // required when using AutomaticKeepAliveClientMixin
     final listState = ref.watch(remindersListProvider);
 
     return Scaffold(
@@ -133,7 +133,7 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
       return const Center(child: Text('No reminders'));
     }
     return ListView.builder(
-      key: const PageStorageKey('reminders_list'), // lưu vị trí scroll
+      key: const PageStorageKey('reminders_list'), // save scroll position
       padding: const EdgeInsets.all(8),
       itemCount: page.data.length,
       itemBuilder: (_, i) {
@@ -152,7 +152,7 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
             });
           },
           onTap: () {
-            // mở bottom sheet xem chi tiết / thao tác nhanh
+            // open bottom sheet to view details / quick actions
             showModalBottomSheet(
               context: context,
               showDragHandle: true,

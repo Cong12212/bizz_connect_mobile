@@ -19,7 +19,7 @@ class ScanPage extends StatelessWidget {
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: () {
-                  // TODO: tích hợp camera/OCR. Tạm thời mock dữ liệu scan:
+                  // TODO: integrate camera/OCR. Temporarily mock scan data:
                   final mock = {
                     'name': 'Nguyen Van A',
                     'company': 'ABC Co.',
@@ -28,7 +28,7 @@ class ScanPage extends StatelessWidget {
                     'address': 'HCMC',
                     'notes': 'From trade show',
                   };
-                  // chuyển sang form tạo contact, có thể truyền qua query/extra
+                  // navigate to create contact form, can pass via query/extra
                   context.go('/contacts/new', extra: mock);
                 },
                 child: const Text('Mock scan & add'),
