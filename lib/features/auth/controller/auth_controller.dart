@@ -24,7 +24,7 @@ class AuthController extends StateNotifier<AuthState> {
   Future<void> bootstrap() async {
     String? token;
     String? email;
-    bool? verified; // nullable
+    bool? verified;
 
     try {
       token = await SecureStore.readToken();
@@ -36,7 +36,12 @@ class AuthController extends StateNotifier<AuthState> {
           email = me.email;
           verified = me.verified;
         } catch (_) {
+          // token không dùng được -> coi như chưa đăng nhập
+          await SecureStore.purgeAll();
+          _api.setToken(null);
+          token = null;
           verified = null;
+          email = null;
         }
       } else {
         verified = null;

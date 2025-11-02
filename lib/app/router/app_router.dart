@@ -15,7 +15,6 @@ import '../../features/contacts/view/contacts_page.dart';
 import '../../features/contacts/view/scan_page.dart';
 import '../../features/notifications/view/notifications_page.dart';
 import '../../features/settings/view/settings_page.dart';
-import '../../features/contacts/view/contacts_page.dart';
 import '../../features/reminders/view/reminder_page.dart';
 import '../widgets/splash_gate.dart';
 
@@ -97,13 +96,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       final path = state.uri.path;
       final auth = ref.read(authControllerProvider);
 
-      // Splash luôn được phép
       if (path == '/splash') return null;
-
-      // Chưa bootstrap xong => không redirect (để Splash tự điều hướng)
       if (!auth.bootstrapped) return null;
 
-      final loggedIn = (auth.token ?? '').isNotEmpty;
+      // loggedIn chỉ true khi có token và đã có kết quả me()
+      final hasToken = (auth.token ?? '').isNotEmpty;
+      final hasMe = auth.isVerified != null; // me() ok -> true/false rõ ràng
+      final loggedIn = hasToken && hasMe;
+
       final verified = auth.isVerified == true;
       final isPublic = path == '/login' || path == '/signup';
       final isVerify = path == '/verify';

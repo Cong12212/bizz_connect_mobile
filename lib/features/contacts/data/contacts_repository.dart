@@ -40,17 +40,20 @@ class ContactsRepository {
     String? q,
     int? page,
     int? perPage,
-    String? sort, // "name" | "-name" | "id" | "-id"
+    String? sort,
     List<int>? tagIds,
     List<String>? tags,
-    String? tagMode, // "any" | "all"
+    String? tagMode,
     int? withoutTagId,
     String? withoutTagName,
     List<int>? excludeIds,
     bool? withoutReminder,
-    String? remStatus, // "pending" | "done" | "skipped" | "cancelled"
+    String? remStatus,
     String? remAfter,
     String? remBefore,
+    String? city, // thêm
+    String? state, // thêm
+    String? country, // thêm
   }) async {
     final p = <String, dynamic>{};
     if (q?.isNotEmpty == true) p['q'] = q;
@@ -71,6 +74,10 @@ class ContactsRepository {
       if (remAfter != null) p['after'] = remAfter;
       if (remBefore != null) p['before'] = remBefore;
     }
+
+    if (city?.isNotEmpty == true) p['city'] = city;
+    if (state?.isNotEmpty == true) p['state'] = state;
+    if (country?.isNotEmpty == true) p['country'] = country;
 
     final res = await _dio.get('/contacts', queryParameters: p);
     return Paginated.fromJson(
@@ -97,20 +104,20 @@ class ContactsRepository {
     return Contact.fromJson(data);
   }
 
-  Future<Contact> createContact(Map<String, dynamic> payload) async {
+  Future<Contact> createContactFromForm(ContactFormData form) async {
     final res = await _dio.post(
       '/contacts',
-      data: jsonEncode(_toNulls(payload)),
+      data: jsonEncode(_toNulls(form.toJson())),
     );
     return Contact.fromJson(
       (res.data as Map<String, dynamic>)['data'] as Map<String, dynamic>,
     );
   }
 
-  Future<Contact> updateContact(int id, Map<String, dynamic> payload) async {
+  Future<Contact> updateContactFromForm(int id, ContactFormData form) async {
     final res = await _dio.put(
       '/contacts/$id',
-      data: jsonEncode(_toNulls(payload)),
+      data: jsonEncode(_toNulls(form.toJson())),
     );
     return Contact.fromJson(
       (res.data as Map<String, dynamic>)['data'] as Map<String, dynamic>,
@@ -175,6 +182,9 @@ class ContactsRepository {
     String? tagMode,
     List<int>? ids,
     String format = 'xlsx',
+    String? city, // thêm
+    String? state, // thêm
+    String? country, // thêm
   }) {
     final p = <String, dynamic>{
       'format': format,
@@ -184,6 +194,9 @@ class ContactsRepository {
       if (tags != null && tags.isNotEmpty) 'tags': tags.join(','),
       if (tagMode != null) 'tag_mode': tagMode,
       if (ids != null && ids.isNotEmpty) 'ids': ids.join(','),
+      if (city?.isNotEmpty == true) 'city': city,
+      if (state?.isNotEmpty == true) 'state': state,
+      if (country?.isNotEmpty == true) 'country': country,
     };
     final qs = p.entries
         .map(

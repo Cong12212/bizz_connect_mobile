@@ -1,61 +1,196 @@
+// settings/data/settings_repository.dart
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../contacts/data/contacts_repository.dart'
-    show dioProvider, apiBaseUrlProvider;
-
-class Me {
-  final int id;
-  final String? name;
-  final String? email;
-
-  Me({required this.id, this.name, this.email});
-
-  factory Me.fromJson(Map<String, dynamic> j) => Me(
-    id: j['id'] as int,
-    name: j['name'] as String?,
-    email: j['email'] as String?,
-  );
-
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'email': email};
-}
+// import '../../core/network/dio_client.dart';
+import 'package:bizz_connect_mobile/core/networks/api_client.dart';
+import 'models/business_card_models.dart';
+import 'models/company_models.dart';
 
 final settingsRepositoryProvider = Provider<SettingsRepository>((ref) {
-  final dio = ref.watch(dioProvider);
-  final base = ref.watch(apiBaseUrlProvider);
-  return SettingsRepository(dio, base);
+  return SettingsRepository(ApiClient().dio);
 });
 
 class SettingsRepository {
-  SettingsRepository(this._dio, this._baseUrl);
   final Dio _dio;
-  final String _baseUrl;
 
-  Future<Me> getMe() async {
-    final res = await _dio.get('/me');
-    final map = (res.data as Map<String, dynamic>);
-    return Me.fromJson(map['data'] ?? map);
+  SettingsRepository(this._dio);
+
+  // ========== USER ME ==========
+  Future<MeResponse> getMe() async {
+    try {
+      final response = await _dio.get('/auth/me');
+      return MeResponse.fromJson(response.data);
+    } catch (e) {
+      rethrow;
+    }
   }
 
-  Future<Me> updateMe({
+  Future<MeResponse> updateMe({
     required String name,
     required String email,
     String? password,
   }) async {
-    final payload = <String, dynamic>{'name': name, 'email': email};
-    if (password != null && password.trim().isNotEmpty) {
-      payload['password'] = password.trim();
+    try {
+      final response = await _dio.patch(
+        '/auth/me',
+        data: {
+          'name': name,
+          'email': email,
+          if (password != null && password.isNotEmpty) 'password': password,
+        },
+      );
+      return MeResponse.fromJson(response.data);
+    } catch (e) {
+      rethrow;
     }
-    final res = await _dio.put('/me', data: jsonEncode(payload));
-    final map = (res.data as Map<String, dynamic>);
-    return Me.fromJson(map['data'] ?? map);
   }
 
   Future<void> logout() async {
     try {
       await _dio.post('/auth/logout');
-    } catch (_) {}
-    // Token cleanup (tùy nơi bạn set header Authorization)
-    _dio.options.headers.remove('Authorization');
+    } catch (e) {
+      // Ignore logout errors
+    }
+  }
+
+  // ========== COMPANY ==========
+  Future<Company?> getCompany() async {
+    try {
+      final response = await _dio.get('/company');
+
+      // Handle 204 No Content or null data
+      if (response.statusCode == 204) {
+        return null;
+      }
+
+      // Check if data is null or empty
+      if (response.data == null) {
+        return null;
+      }
+
+      // Check if data is a Map (expected JSON object)
+      if (response.data is! Map<String, dynamic>) {
+        return null;
+      }
+
+      return Company.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 204) {
+        return null;
+      }
+      if (e.response?.data == null) {
+        return null;
+      }
+      rethrow;
+    } catch (e) {
+      print('getCompany error: $e');
+      rethrow;
+    }
+  }
+
+  Future<Company> saveCompany(CompanyFormData formData) async {
+    try {
+      final response = await _dio.post('/company', data: formData.toJson());
+      return Company.fromJson(response.data);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> deleteCompany() async {
+    try {
+      await _dio.delete('/company');
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  // ========== BUSINESS CARD ==========
+  Future<BusinessCard?> getBusinessCard() async {
+    try {
+      final response = await _dio.get('/business-card');
+
+      // Handle 204 No Content or null data
+      if (response.statusCode == 204) {
+        return null;
+      }
+
+      // Check if data is null or empty
+      if (response.data == null) {
+        return null;
+      }
+
+      // Check if data is a Map (expected JSON object)
+      if (response.data is! Map<String, dynamic>) {
+        return null;
+      }
+
+      return BusinessCard.fromJson(response.data as Map<String, dynamic>);
+    } on DioException catch (e) {
+      // Handle 204 from DioException
+      if (e.response?.statusCode == 204) {
+        return null;
+      }
+      // Handle null response data
+      if (e.response?.data == null) {
+        return null;
+      }
+      rethrow;
+    } catch (e) {
+      // Log the error for debugging
+      print('getBusinessCard error: $e');
+      rethrow;
+    }
+  }
+
+  Future<BusinessCard> saveBusinessCard(BusinessCardFormData formData) async {
+    try {
+      final response = await _dio.post(
+        '/business-card',
+        data: formData.toJson(),
+      );
+      return BusinessCard.fromJson(response.data);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  Future<void> deleteBusinessCard() async {
+    try {
+      await _dio.delete('/business-card');
+    } catch (e) {
+      rethrow;
+    }
+  }
+}
+
+// Response model matching your React FE
+class MeResponse {
+  final int? id;
+  final String? name;
+  final String? email;
+  final String? phone;
+  final String? avatarUrl;
+  final bool? verified;
+
+  MeResponse({
+    this.id,
+    this.name,
+    this.email,
+    this.phone,
+    this.avatarUrl,
+    this.verified,
+  });
+
+  factory MeResponse.fromJson(Map<String, dynamic> json) {
+    return MeResponse(
+      id: json['id'] as int?,
+      name: json['name']?.toString(),
+      email: json['email']?.toString(),
+      phone: json['phone']?.toString(),
+      avatarUrl: json['avatar_url']?.toString(),
+      verified: json['verified'] as bool?,
+    );
   }
 }

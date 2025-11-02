@@ -10,6 +10,7 @@ class ApiClient {
           receiveTimeout: const Duration(seconds: 30),
           headers: {'Accept': 'application/json'},
           responseType: ResponseType.json,
+          // Allow 204 No Content
           validateStatus: (code) => code != null && code >= 200 && code < 400,
         ),
       ) {

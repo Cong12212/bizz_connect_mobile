@@ -2,10 +2,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
-import '../../auth/data/model/auth_repository.dart';
-import '../../auth/data/model/user.dart';
 import 'package:go_router/go_router.dart';
+
 import '../../../core/storage/secure_storage.dart';
+import '../data/settings_repository.dart';
+import '../data/models/company_models.dart';
+import '../data/models/business_card_models.dart';
+import '../widgets/error_box.dart';
+import 'company_edit_modal.dart';
+import 'business_card_edit_modal.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -23,7 +28,9 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
-  User? _user;
+
+  Company? _company;
+  BusinessCard? _businessCard;
 
   @override
   void initState() {
@@ -31,35 +38,48 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _emailCtrl.dispose();
+    _pwdCtrl.dispose();
+    super.dispose();
+  }
+
+  // --- Logic Methods ---
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final repo = ref.read(authRepositoryProvider);
-      final meData = await repo.me();
+      final settingsRepo = ref.read(settingsRepositoryProvider);
 
-      // Fetch full user data (assuming you have a method to get full user)
-      // For now, we'll construct User from me() response
+      // Load data separately to debug
+      print('Loading user data...');
+      final meData = await settingsRepo.getMe();
+      print('User loaded: ${meData.name}');
+
+      print('Loading company data...');
+      final companyData = await settingsRepo.getCompany();
+      print('Company loaded: ${companyData?.name ?? "null"}');
+
+      print('Loading business card data...');
+      final cardData = await settingsRepo.getBusinessCard();
+      print('Business card loaded: ${cardData?.fullName ?? "null"}');
+
       setState(() {
-        _nameCtrl.text =
-            meData.email; // You might want to add name to me() response
-        _emailCtrl.text = meData.email;
-        _user = User(
-          id: 0, // You need to get this from backend
-          name: meData.email,
-          email: meData.email,
-          emailVerifiedAt: meData.verified
-              ? DateTime.now().toIso8601String()
-              : null,
-          createdAt: DateTime.now().toIso8601String(),
-          updatedAt: DateTime.now().toIso8601String(),
-        );
+        _nameCtrl.text = meData.name ?? '';
+        _emailCtrl.text = meData.email ?? '';
+        _company = companyData;
+        _businessCard = cardData;
       });
     } on DioException catch (e) {
+      print('DioException: ${e.response?.statusCode} - ${e.response?.data}');
       setState(() => _error = _prettyError(e));
     } catch (e) {
+      print('Error loading settings: $e');
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -74,17 +94,16 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       _error = null;
     });
     try {
-      final repo = ref.read(authRepositoryProvider);
-      final updated = await repo.updateMe(
-        name: _nameCtrl.text.trim().isEmpty ? null : _nameCtrl.text.trim(),
-        email: _emailCtrl.text.trim().isEmpty ? null : _emailCtrl.text.trim(),
+      final settingsRepo = ref.read(settingsRepositoryProvider);
+      final updated = await settingsRepo.updateMe(
+        name: _nameCtrl.text.trim(),
+        email: _emailCtrl.text.trim(),
         password: _pwdCtrl.text.trim().isEmpty ? null : _pwdCtrl.text.trim(),
       );
 
       setState(() {
-        _user = updated;
-        _nameCtrl.text = updated.name;
-        _emailCtrl.text = updated.email;
+        _nameCtrl.text = updated.name ?? '';
+        _emailCtrl.text = updated.email ?? '';
         _pwdCtrl.clear();
       });
 
@@ -128,42 +147,15 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (confirm != true) return;
 
     try {
-      // Clear token from storage
       await SecureStorage.delete(SecureStorage.keyToken);
+      await ref.read(settingsRepositoryProvider).logout();
 
-      // Clear API client token
-      ref.read(authRepositoryProvider);
-
-      if (mounted) {
-        context.go('/auth');
-      }
+      if (mounted) context.go('/auth');
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Logout failed: $e')));
-      }
-    }
-  }
-
-  Future<void> _resendVerification() async {
-    try {
-      final repo = ref.read(authRepositoryProvider);
-      await repo.resendEmailVerification(email: _emailCtrl.text.trim());
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Verification email sent'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } on DioException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_prettyError(e))));
       }
     }
   }
@@ -177,21 +169,82 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     if (code == 401) return 'Session expired. Please login again.';
     if (code == 422) return 'Validation error: $msg';
     if (code == 405) return 'Method not allowed. Check API endpoint.';
-
     return 'Error $code: $msg';
   }
 
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _emailCtrl.dispose();
-    _pwdCtrl.dispose();
-    super.dispose();
+  // --- UI/Helper Methods ---
+
+  BoxDecoration _box() => BoxDecoration(
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(16),
+    border: Border.all(color: Colors.grey.shade200),
+  );
+
+  InputDecoration _input(String label, IconData icon) => InputDecoration(
+    labelText: label,
+    prefixIcon: Icon(icon),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+  );
+
+  Future<void> _openBusinessCardModal() async {
+    final result = await showModalBottomSheet<BusinessCard?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) =>
+          BusinessCardEditModal(card: _businessCard, company: _company),
+    );
+
+    // Refresh regardless of result (created, updated, or deleted)
+    if (mounted) {
+      await _load();
+
+      if (result != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _businessCard == null
+                  ? 'Business card created!'
+                  : 'Business card updated!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
   }
+
+  Future<void> _openCompanyModal() async {
+    final result = await showModalBottomSheet<Company?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => CompanyEditModal(company: _company),
+    );
+
+    // Refresh regardless of result (created, updated, or deleted)
+    if (mounted) {
+      await _load();
+
+      if (result != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _company == null ? 'Company created!' : 'Company updated!',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
+  // --- Build Method ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: const Text('Settings'),
         elevation: 0,
@@ -202,204 +255,242 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _load,
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
+              child: ListView(
                 padding: const EdgeInsets.all(16),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Error message
-                      if (_error != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.shade50,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.red.shade200),
+                children: [
+                  if (_error != null) ...[
+                    ErrorBox(message: _error!),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // ===== Profile Section =====
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: _box(),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Profile',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                          child: Row(
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _nameCtrl,
+                            decoration: _input('Name', Icons.person_outline),
+                            textInputAction: TextInputAction.next,
+                            validator: (v) => v?.trim().isEmpty ?? true
+                                ? 'Name is required'
+                                : null,
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _emailCtrl,
+                            decoration: _input('Email', Icons.email_outlined),
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                            validator: (v) => v?.trim().isEmpty ?? true
+                                ? 'Email is required'
+                                : null,
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            onPressed: _saving ? null : _save,
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size(double.infinity, 48),
+                              backgroundColor: Colors.black87,
+                            ),
+                            child: _saving
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Text('Save Changes'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ===== Company =====
+                  GestureDetector(
+                    onTap: _openCompanyModal,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: _box(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
                             children: [
-                              Icon(
-                                Icons.error_outline,
-                                color: Colors.red.shade700,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _error!,
-                                  style: TextStyle(color: Colors.red.shade700),
+                              const Icon(Icons.business, size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Company',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
                                 ),
+                              ),
+                              const Spacer(),
+                              Icon(
+                                _company != null
+                                    ? Icons.edit_outlined
+                                    : Icons.add,
+                                size: 20,
+                                color: Colors.grey,
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      // Profile section
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Profile Information',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          const SizedBox(height: 12),
+                          Text(
+                            _company?.name ?? 'No company set',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: _company != null
+                                  ? Colors.black87
+                                  : Colors.grey,
                             ),
-                            const SizedBox(height: 16),
-
-                            // Name field
-                            TextFormField(
-                              controller: _nameCtrl,
-                              decoration: InputDecoration(
-                                labelText: 'Name',
-                                prefixIcon: const Icon(Icons.person_outline),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              textInputAction: TextInputAction.next,
-                              validator: (v) => v?.trim().isEmpty ?? true
-                                  ? 'Name is required'
-                                  : null,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Email field
-                            TextFormField(
-                              controller: _emailCtrl,
-                              decoration: InputDecoration(
-                                labelText: 'Email',
-                                prefixIcon: const Icon(Icons.email_outlined),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              keyboardType: TextInputType.emailAddress,
-                              textInputAction: TextInputAction.next,
-                              validator: (v) => v?.trim().isEmpty ?? true
-                                  ? 'Email is required'
-                                  : null,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Password field
-                            TextFormField(
-                              controller: _pwdCtrl,
-                              decoration: InputDecoration(
-                                labelText: 'New Password (optional)',
-                                prefixIcon: const Icon(Icons.lock_outline),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                helperText:
-                                    'Leave empty to keep current password',
-                              ),
-                              obscureText: true,
-                            ),
-                            const SizedBox(height: 16),
-
-                            // Verification status
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: _user?.verified ?? false
-                                    ? Colors.green.shade50
-                                    : Colors.orange.shade50,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: _user?.verified ?? false
-                                      ? Colors.green.shade200
-                                      : Colors.orange.shade200,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _user?.verified ?? false
-                                        ? Icons.verified
-                                        : Icons.warning_amber,
-                                    color: _user?.verified ?? false
-                                        ? Colors.green.shade700
-                                        : Colors.orange.shade700,
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      _user?.verified ?? false
-                                          ? 'Email verified'
-                                          : 'Email not verified',
-                                      style: TextStyle(
-                                        color: _user?.verified ?? false
-                                            ? Colors.green.shade700
-                                            : Colors.orange.shade700,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                  ),
-                                  if (!(_user?.verified ?? false))
-                                    TextButton(
-                                      onPressed: _resendVerification,
-                                      child: const Text('Resend'),
-                                    ),
-                                ],
+                          ),
+                          if (_company != null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Last updated: ${DateTime.parse(_company!.updatedAt).toLocal().toString().split(' ')[0]}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
                               ),
                             ),
                           ],
-                        ),
+                        ],
                       ),
-                      const SizedBox(height: 24),
-
-                      // Save button
-                      FilledButton.icon(
-                        onPressed: _saving ? null : _save,
-                        icon: _saving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.save),
-                        label: Text(_saving ? 'Saving...' : 'Save Changes'),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          backgroundColor: Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Logout button
-                      OutlinedButton.icon(
-                        onPressed: _logout,
-                        icon: const Icon(Icons.logout),
-                        label: const Text('Logout'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          foregroundColor: Colors.red,
-                          side: BorderSide(color: Colors.red.shade200),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
+                  const SizedBox(height: 16),
+
+                  // ===== Business Card =====
+                  GestureDetector(
+                    onTap: _openBusinessCardModal,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: _box(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.badge_outlined, size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Business Card',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const Spacer(),
+                              Icon(
+                                _businessCard != null
+                                    ? Icons.edit_outlined
+                                    : Icons.add,
+                                size: 20,
+                                color: Colors.grey,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          if (_businessCard != null) ...[
+                            Text(
+                              _businessCard!.fullName,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (_businessCard!.jobTitle != null)
+                              Text(
+                                _businessCard!.jobTitle!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Icon(
+                                  _businessCard!.isPublic == true
+                                      ? Icons.public
+                                      : Icons.lock_outline,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  _businessCard!.isPublic == true
+                                      ? 'Public'
+                                      : 'Private',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                const Icon(
+                                  Icons.visibility_outlined,
+                                  size: 16,
+                                  color: Colors.grey,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${_businessCard!.viewCount ?? 0} views',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ] else
+                            const Text(
+                              'No business card set',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ===== Logout =====
+                  OutlinedButton.icon(
+                    onPressed: _logout,
+                    icon: const Icon(Icons.logout),
+                    label: const Text('Logout'),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(double.infinity, 48),
+                      foregroundColor: Colors.red,
+                      side: BorderSide(color: Colors.red.shade200),
+                    ),
+                  ),
+
+                  const SizedBox(height: 100),
+                ],
               ),
             ),
     );
   }
 }
-
-// Provider
-final authRepositoryProvider = Provider((ref) => AuthRepository());

@@ -10,6 +10,7 @@ import '../../tags/data/tag_models.dart' as tagm;
 import '../controller/contacts_list_controller.dart';
 import '../data/models.dart';
 import '../data/contacts_repository.dart';
+import '../data/location_repository.dart'; // Must define: GeoItem + locationsRepositoryProvider
 
 import '../../reminders/view/create_reminder_dialog.dart';
 
@@ -41,16 +42,24 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
   late _Mode _mode;
   Contact? _contact;
 
-  // form controllers
+  // Form controllers
   final _name = TextEditingController();
   final _job = TextEditingController();
   final _company = TextEditingController();
   final _email = TextEditingController();
   final _phone = TextEditingController();
-  final _address = TextEditingController();
+  final _addressDetail = TextEditingController();
   final _notes = TextEditingController();
   final _linkedin = TextEditingController();
   final _website = TextEditingController();
+
+  // Dropdown data and selections
+  List<GeoItem> _countries = [];
+  List<GeoItem> _states = [];
+  List<GeoItem> _cities = [];
+  String? _countryCode;
+  String? _stateCode;
+  String? _cityCode;
 
   bool _saving = false;
 
@@ -60,6 +69,21 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     _mode = widget.mode;
     _contact = widget.initialContact;
     _fillFromContact(widget.initialContact);
+
+    // Prefill code selections from contact
+    _countryCode = widget.initialContact?.address?.country?.code;
+    _stateCode = widget.initialContact?.address?.state?.code;
+    _cityCode = widget.initialContact?.address?.city?.code;
+
+    // Load geo lists in dependency chain
+    _loadCountries().then((_) async {
+      if (_countryCode != null && _countryCode!.isNotEmpty) {
+        await _loadStates(_countryCode!);
+      }
+      if (_stateCode != null && _stateCode!.isNotEmpty) {
+        await _loadCities(_stateCode!);
+      }
+    });
   }
 
   void _fillFromContact(Contact? c) {
@@ -69,7 +93,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     _company.text = c.company ?? '';
     _email.text = c.email ?? '';
     _phone.text = c.phone ?? '';
-    _address.text = c.address ?? '';
+    _addressDetail.text = c.address?.addressDetail ?? c.addressTextLegacy ?? '';
     _notes.text = c.notes ?? '';
     _linkedin.text = c.linkedinUrl ?? '';
     _website.text = c.websiteUrl ?? '';
@@ -82,7 +106,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     _company.dispose();
     _email.dispose();
     _phone.dispose();
-    _address.dispose();
+    _addressDetail.dispose();
     _notes.dispose();
     _linkedin.dispose();
     _website.dispose();
@@ -99,23 +123,30 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     setState(() => _saving = true);
     try {
       final repo = ref.read(contactsRepositoryProvider);
-      final payload = {
-        'name': _name.text.trim(),
-        'job_title': _job.text.trim(),
-        'company': _company.text.trim(),
-        'email': _email.text.trim(),
-        'phone': _phone.text.trim(),
-        'address': _address.text.trim(),
-        'notes': _notes.text.trim(),
-        'linkedin_url': _linkedin.text.trim(),
-        'website_url': _website.text.trim(),
-      };
+      final form = ContactFormData(
+        name: _name.text.trim(),
+        jobTitle: _job.text.trim().isEmpty ? null : _job.text.trim(),
+        company: _company.text.trim().isEmpty ? null : _company.text.trim(),
+        email: _email.text.trim().isEmpty ? null : _email.text.trim(),
+        phone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        addressDetail: _addressDetail.text.trim().isEmpty
+            ? null
+            : _addressDetail.text.trim(),
+        // lấy code từ dropdown selections
+        countryCode: (_countryCode ?? '').trim().isEmpty
+            ? null
+            : _countryCode!.trim(),
+        stateCode: (_stateCode ?? '').trim().isEmpty
+            ? null
+            : _stateCode!.trim(),
+        cityCode: (_cityCode ?? '').trim().isEmpty ? null : _cityCode!.trim(),
+      );
 
       Contact result;
       if (_mode == _Mode.create) {
-        result = await repo.createContact(payload);
+        result = await repo.createContactFromForm(form);
       } else {
-        result = await repo.updateContact(_contact!.id, payload);
+        result = await repo.updateContactFromForm(_contact!.id, form);
       }
       setState(() => _contact = result);
       if (mounted) Navigator.pop<Contact?>(context, result);
@@ -149,11 +180,8 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     if (c == null) return;
 
     final router = GoRouter.of(context);
-    // Close modal before navigation
     Navigator.pop(context, _contact);
-
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Pass contactId via query
       router.push('/contacts/reminders');
     });
   }
@@ -188,8 +216,43 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     }
   }
 
-  // ---------- TAGS ----------
+  // ---------- GEO LOADERS ----------
+  Future<void> _loadCountries() async {
+    final repo = ref.read(locationsRepositoryProvider);
+    final list = await repo.getCountries();
+    setState(() => _countries = list);
+  }
 
+  Future<void> _loadStates(String countryCode) async {
+    final repo = ref.read(locationsRepositoryProvider);
+    final list = await repo.getStates(countryCode);
+    setState(() => _states = list);
+  }
+
+  Future<void> _loadCities(String stateCode) async {
+    final repo = ref.read(locationsRepositoryProvider);
+    final list = await repo.getCities(stateCode);
+    setState(() => _cities = list);
+  }
+  // ---------- END GEO LOADERS ----------
+
+  String _formatAddress(Contact c) {
+    final parts = <String>[];
+    final detail = c.address?.addressDetail;
+    final city = c.address?.city?.name;
+    final state = c.address?.state?.name;
+    final country = c.address?.country?.name;
+
+    if ((detail ?? '').trim().isNotEmpty) parts.add(detail!.trim());
+    if ((city ?? '').trim().isNotEmpty) parts.add(city!.trim());
+    if ((state ?? '').trim().isNotEmpty) parts.add(state!.trim());
+    if ((country ?? '').trim().isNotEmpty) parts.add(country!.trim());
+
+    if (parts.isNotEmpty) return parts.join(', ');
+    return (c.addressTextLegacy ?? '').trim();
+  }
+
+  // ---------- TAGS ----------
   Future<void> _detachTagQuick(int tagId) async {
     final c = _contact;
     if (c == null) return;
@@ -202,7 +265,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
       if (!mounted) return;
       setState(() => _contact = fresh);
 
-      // Update contact in external list
       ref.read(contactsListControllerProvider.notifier).refreshContact(fresh);
     } catch (e) {
       if (!mounted) return;
@@ -230,7 +292,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     if (!mounted || result == null) return;
 
     if (result == _TagSheetResult.manage) {
-      // Navigate after sheet is closed
       GoRouter.of(context).push('/contacts/tags');
       return;
     }
@@ -385,6 +446,150 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     );
   }
 
+  // ===== Form helpers =====
+  Widget _buildForm() {
+    Widget f(String label, TextEditingController c, {TextInputType? type}) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 6),
+          TextField(
+            controller: c,
+            keyboardType: type,
+            decoration: InputDecoration(
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              filled: true,
+              fillColor: const Color(0xFFF8FAFC),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        f('Name *', _name),
+        f('Job Title', _job),
+        f('Company', _company),
+        f('Email', _email, type: TextInputType.emailAddress),
+        f('Phone', _phone, type: TextInputType.phone),
+
+        // Address detail
+        f('Address detail', _addressDetail),
+
+        // Country / State / City dropdowns
+        _countryDropdown(),
+        const SizedBox(height: 12),
+        _stateDropdown(),
+        const SizedBox(height: 12),
+        _cityDropdown(),
+
+        const SizedBox(height: 12),
+        f('Notes', _notes),
+        f('LinkedIn URL', _linkedin, type: TextInputType.url),
+        f('Website URL', _website, type: TextInputType.url),
+      ],
+    );
+  }
+
+  InputDecoration _dropdownDecoration(String label) {
+    return InputDecoration(
+      labelText: label,
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+      filled: true,
+      fillColor: const Color(0xFFF8FAFC),
+    );
+  }
+
+  Widget _countryDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _countryCode?.isEmpty == true ? null : _countryCode,
+      decoration: _dropdownDecoration('Country'),
+      isExpanded: true,
+      items: _countries
+          .map(
+            (e) => DropdownMenuItem(
+              value: e.code,
+              child: Text('${e.name} (${e.code})'),
+            ),
+          )
+          .toList(),
+      onChanged: (val) async {
+        setState(() {
+          _countryCode = val;
+          _stateCode = null;
+          _cityCode = null;
+          _states = [];
+          _cities = [];
+        });
+        if (val != null && val.isNotEmpty) {
+          await _loadStates(val);
+        }
+      },
+    );
+  }
+
+  Widget _stateDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _stateCode?.isEmpty == true ? null : _stateCode,
+      decoration: _dropdownDecoration('State'),
+      isExpanded: true,
+      items: _states
+          .map(
+            (e) => DropdownMenuItem(
+              value: e.code,
+              child: Text('${e.name} (${e.code})'),
+            ),
+          )
+          .toList(),
+      onChanged: (val) async {
+        setState(() {
+          _stateCode = val;
+          _cityCode = null;
+          _cities = [];
+        });
+        if (val != null && val.isNotEmpty) {
+          await _loadCities(val);
+        }
+      },
+    );
+  }
+
+  Widget _cityDropdown() {
+    return DropdownButtonFormField<String>(
+      value: _cityCode?.isEmpty == true ? null : _cityCode,
+      decoration: _dropdownDecoration('City'),
+      isExpanded: true,
+      items: _cities
+          .map(
+            (e) => DropdownMenuItem(
+              value: e.code,
+              child: Text('${e.name} (${e.code})'),
+            ),
+          )
+          .toList(),
+      onChanged: (val) {
+        setState(() => _cityCode = val);
+      },
+    );
+  }
+
+  // ===== View =====
   Widget _buildView() {
     final c = _contact!;
     final chips = (c.tags ?? [])
@@ -473,8 +678,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                         : chips,
                   ),
                   const SizedBox(height: 8),
-
-                  // Compact action row: icon + (small caption) or icon only
                   Wrap(
                     spacing: 8,
                     runSpacing: 4,
@@ -483,7 +686,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                         icon: Icons.label_outline,
                         label: 'Tags',
                         onTap: _openSelectTags,
-                        showCaption: true, // đổi false nếu muốn chỉ icon
                       ),
                       _ActionIcon(
                         icon: Icons.settings_outlined,
@@ -495,19 +697,16 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                             router.push('/contacts/tags');
                           });
                         },
-                        showCaption: true,
                       ),
                       _ActionIcon(
                         icon: Icons.add_alarm,
                         label: 'Add reminder',
                         onTap: _addReminder,
-                        showCaption: true,
                       ),
                       _ActionIcon(
                         icon: Icons.event_note,
                         label: 'Reminders',
                         onTap: _manageReminders,
-                        showCaption: true,
                       ),
                     ],
                   ),
@@ -521,57 +720,10 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
         row('Company', c.company),
         row('Email', c.email),
         row('Phone', c.phone),
-        row('Address', c.address),
+        row('Address', _formatAddress(c)),
         row('Notes', c.notes),
         row('LinkedIn', c.linkedinUrl),
         row('Website', c.websiteUrl),
-      ],
-    );
-  }
-
-  Widget _buildForm() {
-    Widget f(String label, TextEditingController c, {TextInputType? type}) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-          ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: c,
-            keyboardType: type,
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-      );
-    }
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        f('Name *', _name),
-        f('Job Title', _job),
-        f('Company', _company),
-        f('Email', _email, type: TextInputType.emailAddress),
-        f('Phone', _phone, type: TextInputType.phone),
-        f('Address', _address),
-        f('Notes', _notes),
-        f('LinkedIn URL', _linkedin, type: TextInputType.url),
-        f('Website URL', _website, type: TextInputType.url),
       ],
     );
   }
@@ -607,48 +759,39 @@ class _Avatar extends StatelessWidget {
 }
 
 class _ActionIcon extends StatelessWidget {
-  const _ActionIcon({
-    required this.icon,
-    required this.onTap,
-    this.label,
-    this.showCaption = true, // Set false for icon-only
-    super.key,
-  });
+  const _ActionIcon({required this.icon, required this.onTap, this.label});
 
   final IconData icon;
   final VoidCallback onTap;
   final String? label;
-  final bool showCaption;
 
   @override
   Widget build(BuildContext context) {
-    final iconBtn = IconButton(
-      onPressed: onTap,
-      icon: Icon(icon, size: 20),
-      tooltip: label, // Show hover title
-      style: IconButton.styleFrom(
-        padding: const EdgeInsets.all(10),
-        minimumSize: const Size(40, 40),
-      ),
-    );
-
-    if (!showCaption || (label == null)) return iconBtn;
-
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        iconBtn,
-        Text(
-          label!,
-          style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
-          overflow: TextOverflow.ellipsis,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 20, color: const Color(0xFF475569)),
+            if (label != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                label!,
+                style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ],
         ),
-      ],
+      ),
     );
   }
 }
 
-/// Bottom sheet: select, attach, detach tags; with "Manage" button → /tags
+/// Bottom sheet: select, attach, detach tags; with "Manage" button
 class _SelectTagsSheet extends ConsumerStatefulWidget {
   const _SelectTagsSheet({required this.contactId, required this.initialIds});
   final int contactId;
@@ -695,8 +838,9 @@ class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
     for (final id in toRemove) {
       await contactsRepo.detachTag(widget.contactId, id);
     }
-    if (mounted)
+    if (mounted) {
       Navigator.pop<_TagSheetResult>(context, _TagSheetResult.updated);
+    }
   }
 
   @override
