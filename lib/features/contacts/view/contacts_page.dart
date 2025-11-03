@@ -343,6 +343,8 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
                     itemBuilder: (_, i) {
                       final c = state.items[i];
+                      final tags = (c.tags ?? []).take(2).toList();
+
                       return InkWell(
                         borderRadius: BorderRadius.circular(12),
                         onTap: () => _openViewModal(c),
@@ -384,6 +386,63 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
                                         color: Color(0xFF64748B),
                                       ),
                                     ),
+                                    if (tags.isNotEmpty) ...[
+                                      const SizedBox(height: 4),
+                                      Wrap(
+                                        spacing: 4,
+                                        runSpacing: 2,
+                                        children: [
+                                          ...tags.map(
+                                            (t) => Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFEFF6FF),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: const Color(
+                                                    0xFFBFDBFE,
+                                                  ),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                '#${t.name}',
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  color: Color(0xFF2563EB),
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                          if ((c.tags ?? []).length > 2)
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF1F5F9),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                '+${(c.tags?.length ?? 0) - 2}',
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  color: Color(0xFF64748B),
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),

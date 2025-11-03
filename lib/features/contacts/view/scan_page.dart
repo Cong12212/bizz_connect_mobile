@@ -2,15 +2,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 import '../services/ocr_service.dart';
-import '../services/qr_service.dart';
-import '../data/models.dart'; // ✅ Thêm dòng này
-import 'camera_scanner_page.dart';
+import '../data/models.dart';
 import 'scanned_contact_preview_dialog.dart';
 
-enum ScanMode { businessCard, qrCode }
+enum ScanStep { front, back, preview }
 
 class ScanPage extends StatefulWidget {
   const ScanPage({super.key});
@@ -20,11 +17,15 @@ class ScanPage extends StatefulWidget {
 }
 
 class _ScanPageState extends State<ScanPage> {
-  ScanMode _mode = ScanMode.businessCard;
+  ScanStep _step = ScanStep.front;
   final _ocrService = OcrService();
-  final _qrService = QrService();
   final _imagePicker = ImagePicker();
+
   bool _isProcessing = false;
+  File? _frontImage;
+  File? _backImage;
+  Map<String, String?>? _frontData;
+  Map<String, String?>? _backData;
 
   @override
   void dispose() {
@@ -32,27 +33,12 @@ class _ScanPageState extends State<ScanPage> {
     super.dispose();
   }
 
-  Future<void> _scanWithCamera() async {
-    // Temporarily disabled - use gallery upload instead
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Camera scanning coming soon. Please use gallery upload.',
-        ),
-        duration: Duration(seconds: 2),
-      ),
-    );
-
-    // Automatically trigger image picker instead
-    await _pickImage();
-  }
-
-  Future<void> _pickImage() async {
+  Future<void> _pickImage(ImageSource source) async {
     try {
-      debugPrint('📸 Starting image picker...');
+      debugPrint('📸 Starting image picker for ${_step.name}...');
 
       final XFile? image = await _imagePicker.pickImage(
-        source: ImageSource.gallery,
+        source: source,
         imageQuality: 85,
       );
 
@@ -62,320 +48,130 @@ class _ScanPageState extends State<ScanPage> {
       }
 
       debugPrint('✅ Image selected: ${image.path}');
-      debugPrint('📏 Image size: ${await image.length()} bytes');
-
       setState(() => _isProcessing = true);
 
-      if (_mode == ScanMode.businessCard) {
-        debugPrint('🔄 Processing business card...');
-        await _processBusinessCard(File(image.path));
-      } else {
-        debugPrint('⚠️ QR from image not implemented');
+      final imageFile = File(image.path);
+      final extractedData = await _ocrService.extractContactFromImage(
+        imageFile,
+      );
+
+      if (_step == ScanStep.front) {
+        setState(() {
+          _frontImage = imageFile;
+          _frontData = extractedData;
+          _step = ScanStep.back;
+        });
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Quét QR từ ảnh chưa được triển khai'),
+              content: Text('Front side scanned. Now scan the back side.'),
+              backgroundColor: Colors.green,
             ),
           );
         }
+      } else if (_step == ScanStep.back) {
+        setState(() {
+          _backImage = imageFile;
+          _backData = extractedData;
+          _step = ScanStep.preview;
+        });
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint('❌ Error in _pickImage: $e');
-      debugPrint('📚 Stack trace: $stackTrace');
-
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
-      if (mounted) {
-        setState(() => _isProcessing = false);
-      }
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
-  Future<void> _processBusinessCard(File imageFile) async {
-    try {
-      debugPrint('🔧 Processing business card image...');
+  void _skipBackSide() {
+    setState(() {
+      _backImage = null;
+      _backData = null;
+      _step = ScanStep.preview;
+    });
+  }
 
-      final contactData = await _ocrService.extractContactFromImage(imageFile);
-      debugPrint('✅ OCR completed, showing preview dialog...');
-      debugPrint('📋 Contact data: $contactData');
+  void _resetScan() {
+    setState(() {
+      _step = ScanStep.front;
+      _frontImage = null;
+      _backImage = null;
+      _frontData = null;
+      _backData = null;
+    });
+  }
 
-      if (mounted) {
-        // Show preview dialog instead of navigating directly
-        final result = await showDialog<Contact?>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => ScannedContactPreviewDialog(scannedData: contactData),
-        );
+  Map<String, String?> _mergeData() {
+    final merged = <String, String?>{..._frontData ?? {}};
 
-        if (result != null && mounted) {
-          // Contact was saved, navigate back to contacts list
-          debugPrint('✅ Contact saved, navigating back...');
-          context.go('/contacts');
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Contact "${result.name}" added successfully'),
-              backgroundColor: Colors.green,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+    // Merge back data, prioritizing non-empty values
+    if (_backData != null) {
+      _backData!.forEach((key, value) {
+        if (value != null && value.trim().isNotEmpty) {
+          if (merged[key] == null || merged[key]!.trim().isEmpty) {
+            merged[key] = value;
+          }
         }
-      }
-    } catch (e, stackTrace) {
-      debugPrint('❌ Error in _processBusinessCard: $e');
-      debugPrint('📚 Stack trace: $stackTrace');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('OCR failed: $e'),
-            duration: const Duration(seconds: 3),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      });
     }
+
+    return merged;
   }
 
-  void _processQrCode(String qrData) {
-    debugPrint('📱 Processing QR code data: $qrData');
+  Future<void> _showPreviewAndSave() async {
+    final mergedData = _mergeData();
 
-    final contactData = _qrService.parseQrData(qrData);
-
-    if (contactData == null) {
-      debugPrint('❌ Invalid QR code format');
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Invalid QR code format. Please scan a vCard or contact QR code.',
-            ),
-            backgroundColor: Colors.red,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-      return;
-    }
-
-    debugPrint('✅ QR parsed, showing preview dialog...');
-    debugPrint('📋 Contact data: $contactData');
-
-    // Show preview dialog for QR data too
-    showDialog<Contact?>(
+    final result = await showDialog<Contact?>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => ScannedContactPreviewDialog(scannedData: contactData),
-    ).then((result) {
-      if (result != null && mounted) {
-        debugPrint('✅ Contact from QR saved, navigating back...');
-        context.go('/contacts');
+      builder: (_) => ScannedContactPreviewDialog(scannedData: mergedData),
+    );
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Contact "${result.name}" added successfully'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 2),
-          ),
-        );
-      }
-    });
+    if (result != null && mounted) {
+      debugPrint('✅ Contact saved, navigating back...');
+      context.go('/contacts');
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Contact "${result.name}" added successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
-      appBar: AppBar(title: const Text('Scan Contact'), centerTitle: true),
+      appBar: AppBar(
+        title: const Text('Scan Business Card'),
+        centerTitle: true,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (_step == ScanStep.front) {
+              context.pop();
+            } else {
+              _resetScan();
+            }
+          },
+        ),
+      ),
       body: Stack(
         children: [
           SafeArea(
-            child: Column(
-              children: [
-                // Mode selector
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFE5E7EB)),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: _ModeButton(
-                            icon: Icons.credit_card,
-                            label: 'Business Card',
-                            selected: _mode == ScanMode.businessCard,
-                            onTap: () =>
-                                setState(() => _mode = ScanMode.businessCard),
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: const Color(0xFFE5E7EB),
-                        ),
-                        Expanded(
-                          child: _ModeButton(
-                            icon: Icons.qr_code_2,
-                            label: 'QR Code',
-                            selected: _mode == ScanMode.qrCode,
-                            onTap: () =>
-                                setState(() => _mode = ScanMode.qrCode),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // Icon display
-                Icon(
-                  _mode == ScanMode.businessCard
-                      ? Icons.credit_card_outlined
-                      : Icons.qr_code_scanner,
-                  size: 120,
-                  color: const Color(0xFF64748B),
-                ),
-
-                const SizedBox(height: 16),
-
-                // Description
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    _mode == ScanMode.businessCard
-                        ? 'Scan or upload a business card image to extract contact information'
-                        : 'Scan or upload a QR code to import contact details',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      fontSize: 14,
-                      color: Color(0xFF64748B),
-                      height: 1.5,
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 32),
-
-                // Action buttons
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Scan with camera
-                      FilledButton.icon(
-                        onPressed: _isProcessing ? null : _scanWithCamera,
-                        icon: _isProcessing
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.camera_alt),
-                        label: Text(
-                          _mode == ScanMode.businessCard
-                              ? 'Scan Business Card'
-                              : 'Scan QR Code',
-                        ),
-                        style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 16,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // Upload from gallery
-                      OutlinedButton.icon(
-                        onPressed: _isProcessing ? null : _pickImage,
-                        icon: const Icon(Icons.photo_library),
-                        label: const Text('Upload from Gallery'),
-                        style: OutlinedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 16,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const Spacer(),
-
-                // Tips section
-                Container(
-                  margin: const EdgeInsets.all(16),
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0F9FF),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFBAE6FD)),
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        Icons.lightbulb_outline,
-                        color: Color(0xFF0284C7),
-                        size: 20,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Tips for best results:',
-                              style: TextStyle(
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF0284C7),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _mode == ScanMode.businessCard
-                                  ? '• Place card on flat surface\n'
-                                        '• Ensure good lighting\n'
-                                        '• Keep card edges visible\n'
-                                        '• Avoid shadows and glare'
-                                  : '• Center QR code in frame\n'
-                                        '• Ensure good lighting\n'
-                                        '• Hold camera steady\n'
-                                        '• Keep appropriate distance',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF0369A1),
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+            child: _step == ScanStep.preview
+                ? _buildPreviewStep()
+                : _buildScanStep(),
           ),
 
-          // Loading overlay
           if (_isProcessing)
             Container(
               color: Colors.black54,
@@ -385,52 +181,452 @@ class _ScanPageState extends State<ScanPage> {
       ),
     );
   }
+
+  Widget _buildScanStep() {
+    final isFront = _step == ScanStep.front;
+
+    return Column(
+      children: [
+        // Step indicator
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              _StepIndicator(
+                number: 1,
+                label: 'Front',
+                active: _step == ScanStep.front,
+                completed: _frontImage != null,
+              ),
+              Expanded(
+                child: Container(
+                  height: 2,
+                  color: _frontImage != null
+                      ? Colors.green
+                      : const Color(0xFFE5E7EB),
+                ),
+              ),
+              _StepIndicator(
+                number: 2,
+                label: 'Back',
+                active: _step == ScanStep.back,
+                completed: _backImage != null,
+              ),
+              Expanded(
+                child: Container(
+                  height: 2,
+                  color: _backImage != null
+                      ? Colors.green
+                      : const Color(0xFFE5E7EB),
+                ),
+              ),
+              _StepIndicator(
+                number: 3,
+                label: 'Review',
+                active: _step == ScanStep.preview,
+                completed: false,
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // Instruction
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 24),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F9FF),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFBAE6FD)),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.info_outline,
+                color: Color(0xFF0284C7),
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isFront
+                      ? 'Scan the FRONT side of the business card'
+                      : 'Scan the BACK side of the business card (or skip if not needed)',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF0369A1),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 32),
+
+        // Preview of captured image
+        if ((isFront && _frontImage != null) ||
+            (!isFront && _backImage != null))
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 24),
+            height: 200,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.file(
+                isFront ? _frontImage! : _backImage!,
+                fit: BoxFit.cover,
+              ),
+            ),
+          )
+        else
+          Icon(
+            Icons.credit_card_outlined,
+            size: 120,
+            color: const Color(0xFF64748B),
+          ),
+
+        const SizedBox(height: 32),
+
+        // Action buttons
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FilledButton.icon(
+                onPressed: _isProcessing
+                    ? null
+                    : () => _pickImage(ImageSource.camera),
+                icon: const Icon(Icons.camera_alt),
+                label: Text('Take Photo of ${isFront ? "Front" : "Back"}'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              OutlinedButton.icon(
+                onPressed: _isProcessing
+                    ? null
+                    : () => _pickImage(ImageSource.gallery),
+                icon: const Icon(Icons.photo_library),
+                label: const Text('Upload from Gallery'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+              ),
+
+              if (!isFront) ...[
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _skipBackSide,
+                  child: const Text('Skip Back Side'),
+                ),
+              ],
+            ],
+          ),
+        ),
+
+        const Spacer(),
+
+        // Tips
+        Container(
+          margin: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFEF3C7),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFFDE68A)),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.lightbulb_outline, color: Color(0xFFA16207), size: 20),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Tips for best results:',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFA16207),
+                      ),
+                    ),
+                    SizedBox(height: 6),
+                    Text(
+                      '• Place card on flat surface\n'
+                      '• Ensure good lighting\n'
+                      '• Keep card edges visible\n'
+                      '• Avoid shadows and glare',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF92400E),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPreviewStep() {
+    return Column(
+      children: [
+        // Header
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: const BoxDecoration(
+            color: Color(0xFFF8FAFC),
+            border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.preview, color: Color(0xFF0284C7)),
+              SizedBox(width: 12),
+              Text(
+                'Review Scanned Data',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              // Scanned images
+              Row(
+                children: [
+                  if (_frontImage != null)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Front Side',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(
+                              _frontImage!,
+                              height: 120,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_frontImage != null && _backImage != null)
+                    const SizedBox(width: 12),
+                  if (_backImage != null)
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Back Side',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.file(
+                              _backImage!,
+                              height: 120,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+
+              // Extracted data summary
+              const Text(
+                'Extracted Information',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+
+              ..._buildDataSummary(),
+            ],
+          ),
+        ),
+
+        // Actions
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _resetScan,
+                    child: const Text('Scan Again'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _showPreviewAndSave,
+                    child: const Text('Review & Save'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _buildDataSummary() {
+    final merged = _mergeData();
+    final items = <Widget>[];
+
+    void addItem(String label, String? value) {
+      if (value != null && value.trim().isNotEmpty) {
+        items.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 100,
+                  child: Text(
+                    label,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Text(
+                    value.trim(),
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+    }
+
+    addItem('Name', merged['name']);
+    addItem('Email', merged['email']);
+    addItem('Phone', merged['phone']);
+    addItem('Company', merged['company']);
+    addItem('Job Title', merged['job_title']);
+    addItem('Address', merged['address_detail']);
+
+    if (items.isEmpty) {
+      return [
+        const Text(
+          'No data extracted. You can manually enter information in the next step.',
+          style: TextStyle(
+            fontSize: 12,
+            color: Color(0xFF64748B),
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ];
+    }
+
+    return items;
+  }
 }
 
-class _ModeButton extends StatelessWidget {
-  const _ModeButton({
-    required this.icon,
+class _StepIndicator extends StatelessWidget {
+  const _StepIndicator({
+    required this.number,
     required this.label,
-    required this.selected,
-    required this.onTap,
+    required this.active,
+    required this.completed,
   });
 
-  final IconData icon;
+  final int number;
   final String label;
-  final bool selected;
-  final VoidCallback onTap;
+  final bool active;
+  final bool completed;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          color: selected ? Colors.blue : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+    return Column(
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: completed
+                ? Colors.green
+                : active
+                ? Colors.blue
+                : const Color(0xFFE5E7EB),
+            shape: BoxShape.circle,
+          ),
+          child: Center(
+            child: completed
+                ? const Icon(Icons.check, size: 16, color: Colors.white)
+                : Text(
+                    '$number',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: active ? Colors.white : const Color(0xFF64748B),
+                    ),
+                  ),
+          ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: selected ? Colors.white : const Color(0xFF64748B),
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                color: selected ? Colors.white : const Color(0xFF64748B),
-              ),
-            ),
-          ],
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+            color: active ? Colors.blue : const Color(0xFF64748B),
+          ),
         ),
-      ),
+      ],
     );
   }
 }

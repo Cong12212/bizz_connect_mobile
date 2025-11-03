@@ -4,19 +4,21 @@ import 'package:go_router/go_router.dart';
 
 // Tags
 import '../../tags/data/tags_repository.dart';
-import '../../tags/data/tag_models.dart' as tagm;
 
 // Contacts
 import '../controller/contacts_list_controller.dart';
 import '../data/models.dart';
 import '../data/contacts_repository.dart';
-import '../data/location_repository.dart'; // Must define: GeoItem + locationsRepositoryProvider
+import '../data/location_repository.dart';
+
+// Widgets
+import '../widgets/contact_avatar.dart';
+import '../widgets/contact_action_icon.dart';
+import '../widgets/select_tags_sheet.dart';
 
 import '../../reminders/view/create_reminder_dialog.dart';
 
 enum _Mode { view, edit, create }
-
-enum _TagSheetResult { updated, manage, closed }
 
 class ContactDetailModal extends ConsumerStatefulWidget {
   const ContactDetailModal._({
@@ -70,12 +72,10 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     _contact = widget.initialContact;
     _fillFromContact(widget.initialContact);
 
-    // Prefill code selections from contact
     _countryCode = widget.initialContact?.address?.country?.code;
     _stateCode = widget.initialContact?.address?.state?.code;
     _cityCode = widget.initialContact?.address?.city?.code;
 
-    // Load geo lists in dependency chain
     _loadCountries().then((_) async {
       if (_countryCode != null && _countryCode!.isNotEmpty) {
         await _loadStates(_countryCode!);
@@ -132,7 +132,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
         addressDetail: _addressDetail.text.trim().isEmpty
             ? null
             : _addressDetail.text.trim(),
-        // lấy code từ dropdown selections
         countryCode: (_countryCode ?? '').trim().isEmpty
             ? null
             : _countryCode!.trim(),
@@ -234,7 +233,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     final list = await repo.getCities(stateCode);
     setState(() => _cities = list);
   }
-  // ---------- END GEO LOADERS ----------
 
   String _formatAddress(Contact c) {
     final parts = <String>[];
@@ -278,12 +276,12 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     final c = _contact;
     if (c == null) return;
 
-    final result = await showModalBottomSheet<_TagSheetResult>(
+    final result = await showModalBottomSheet<TagSheetResult>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _SelectTagsSheet(
+      builder: (_) => SelectTagsSheet(
         contactId: c.id,
         initialIds: (c.tags ?? []).map((t) => t.id).toList(),
       ),
@@ -291,19 +289,18 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
 
     if (!mounted || result == null) return;
 
-    if (result == _TagSheetResult.manage) {
+    if (result == TagSheetResult.manage) {
       GoRouter.of(context).push('/contacts/tags');
       return;
     }
 
-    if (result == _TagSheetResult.updated) {
+    if (result == TagSheetResult.updated) {
       final repo = ref.read(contactsRepositoryProvider);
       final fresh = await repo.getContact(c.id);
       setState(() => _contact = fresh);
       ref.read(contactsListControllerProvider.notifier).refreshContact(fresh);
     }
   }
-  // ---------- END TAGS ----------
 
   @override
   Widget build(BuildContext context) {
@@ -404,7 +401,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                       ),
                     ),
 
-                    // Bottom actions khi view
+                    // Bottom actions
                     if (!isEditing && _contact != null)
                       SafeArea(
                         top: false,
@@ -486,17 +483,12 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
         f('Company', _company),
         f('Email', _email, type: TextInputType.emailAddress),
         f('Phone', _phone, type: TextInputType.phone),
-
-        // Address detail
         f('Address detail', _addressDetail),
-
-        // Country / State / City dropdowns
         _countryDropdown(),
         const SizedBox(height: 12),
         _stateDropdown(),
         const SizedBox(height: 12),
         _cityDropdown(),
-
         const SizedBox(height: 12),
         f('Notes', _notes),
         f('LinkedIn URL', _linkedin, type: TextInputType.url),
@@ -636,7 +628,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
       children: [
         Row(
           children: [
-            _Avatar(name: c.name, size: 64),
+            ContactAvatar(name: c.name, size: 64),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -682,12 +674,12 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                     spacing: 8,
                     runSpacing: 4,
                     children: [
-                      _ActionIcon(
+                      ContactActionIcon(
                         icon: Icons.label_outline,
                         label: 'Tags',
                         onTap: _openSelectTags,
                       ),
-                      _ActionIcon(
+                      ContactActionIcon(
                         icon: Icons.settings_outlined,
                         label: 'Manage tags',
                         onTap: () {
@@ -698,12 +690,12 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                           });
                         },
                       ),
-                      _ActionIcon(
+                      ContactActionIcon(
                         icon: Icons.add_alarm,
                         label: 'Add reminder',
                         onTap: _addReminder,
                       ),
-                      _ActionIcon(
+                      ContactActionIcon(
                         icon: Icons.event_note,
                         label: 'Reminders',
                         onTap: _manageReminders,
@@ -725,258 +717,6 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
         row('LinkedIn', c.linkedinUrl),
         row('Website', c.websiteUrl),
       ],
-    );
-  }
-}
-
-class _Avatar extends StatelessWidget {
-  const _Avatar({required this.name, this.size = 56});
-  final String name;
-  final double size;
-
-  String get initials {
-    final parts = name.split(' ').where((e) => e.isNotEmpty).toList();
-    if (parts.isEmpty) return '?';
-    return parts.take(2).map((s) => s[0].toUpperCase()).join();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-        color: Color(0xFFE2E8F0),
-      ),
-      child: Text(
-        initials,
-        style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 18),
-      ),
-    );
-  }
-}
-
-class _ActionIcon extends StatelessWidget {
-  const _ActionIcon({required this.icon, required this.onTap, this.label});
-
-  final IconData icon;
-  final VoidCallback onTap;
-  final String? label;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 20, color: const Color(0xFF475569)),
-            if (label != null) ...[
-              const SizedBox(height: 2),
-              Text(
-                label!,
-                style: const TextStyle(fontSize: 10, color: Color(0xFF64748B)),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Bottom sheet: select, attach, detach tags; with "Manage" button
-class _SelectTagsSheet extends ConsumerStatefulWidget {
-  const _SelectTagsSheet({required this.contactId, required this.initialIds});
-  final int contactId;
-  final List<int> initialIds;
-
-  @override
-  ConsumerState<_SelectTagsSheet> createState() => _SelectTagsSheetState();
-}
-
-class _SelectTagsSheetState extends ConsumerState<_SelectTagsSheet> {
-  final _searchCtrl = TextEditingController();
-  final Set<int> _selected = {};
-  List<tagm.Tag> _available = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _selected.addAll(widget.initialIds);
-    _load();
-  }
-
-  Future<void> _load({String q = ''}) async {
-    setState(() => _loading = true);
-    final repo = ref.read(tagsRepositoryProvider);
-    final res = await repo.listTags(q: q, page: 1);
-    setState(() {
-      _available = res.data;
-      _loading = false;
-    });
-  }
-
-  Future<void> _apply() async {
-    final contactsRepo = ref.read(contactsRepositoryProvider);
-
-    final initial = widget.initialIds.toSet();
-    final now = _selected.toSet();
-    final toAdd = now.difference(initial).toList();
-    final toRemove = initial.difference(now).toList();
-
-    if (toAdd.isNotEmpty) {
-      await contactsRepo.attachTags(widget.contactId, ids: toAdd);
-    }
-    for (final id in toRemove) {
-      await contactsRepo.detachTag(widget.contactId, id);
-    }
-    if (mounted) {
-      Navigator.pop<_TagSheetResult>(context, _TagSheetResult.updated);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final list = _loading
-        ? const Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: CircularProgressIndicator(),
-            ),
-          )
-        : ListView.builder(
-            shrinkWrap: true,
-            itemCount: _available.length,
-            itemBuilder: (_, i) {
-              final t = _available[i];
-              final checked = _selected.contains(t.id);
-              return CheckboxListTile(
-                value: checked,
-                title: Text(t.name),
-                subtitle: Text('${t.contactsCount} contacts'),
-                onChanged: (v) {
-                  setState(() {
-                    if (v == true) {
-                      _selected.add(t.id);
-                    } else {
-                      _selected.remove(t.id);
-                    }
-                  });
-                },
-              );
-            },
-          );
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Row(
-                  children: [
-                    const Text(
-                      'Select tags',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const Spacer(),
-                    TextButton.icon(
-                      icon: const Icon(Icons.settings_outlined, size: 18),
-                      label: const Text('Manage'),
-                      onPressed: () {
-                        Navigator.pop<_TagSheetResult>(
-                          context,
-                          _TagSheetResult.manage,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              // Search
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: TextField(
-                  controller: _searchCtrl,
-                  decoration: InputDecoration(
-                    hintText: 'Search tags…',
-                    prefixIcon: const Icon(Icons.search, size: 20),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.refresh, size: 20),
-                      onPressed: () => _load(q: _searchCtrl.text),
-                    ),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                  ),
-                  onSubmitted: (v) => _load(q: v),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // List with limited height (avoid unbounded)
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.5,
-                ),
-                child: list,
-              ),
-
-              const Divider(height: 1),
-              // Buttons
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.pop<_TagSheetResult>(
-                          context,
-                          _TagSheetResult.closed,
-                        ),
-                        child: const Text('Close'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: _apply,
-                        child: const Text('Apply'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

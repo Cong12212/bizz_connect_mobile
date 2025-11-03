@@ -4,14 +4,22 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
 
 import '../data/settings_repository.dart';
+import '../data/settings_state.dart';
 import '../data/models/business_card_models.dart';
 import '../data/models/company_models.dart';
+import '../widgets/address_form_fields.dart';
 
 class BusinessCardEditModal extends ConsumerStatefulWidget {
-  const BusinessCardEditModal({this.card, this.company, super.key});
+  const BusinessCardEditModal({
+    this.card,
+    this.company,
+    this.isEditing = false,
+    super.key,
+  });
 
   final BusinessCard? card;
   final Company? company;
+  final bool isEditing;
 
   @override
   ConsumerState<BusinessCardEditModal> createState() =>
@@ -38,9 +46,12 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
   bool _saving = false;
   String? _error;
 
+  late bool _isEditMode;
+
   @override
   void initState() {
     super.initState();
+    _isEditMode = widget.isEditing || widget.card == null;
     final c = widget.card;
     if (c != null) {
       _fullNameCtrl.text = c.fullName;
@@ -102,12 +113,11 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
 
       final result = await repo.saveBusinessCard(formData);
 
-      if (mounted) {
-        // Close modal and return result
-        Navigator.pop(context, result);
-      }
+      // Cập nhật provider state
+      ref.read(businessCardProvider.notifier).update(result);
+
+      if (mounted) Navigator.pop(context, result);
     } on DioException catch (e) {
-      // Extract error message from Laravel response
       String errorMsg = 'Save failed';
 
       if (e.response?.data is Map) {
@@ -153,10 +163,11 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
 
     try {
       await ref.read(settingsRepositoryProvider).deleteBusinessCard();
-      if (mounted) {
-        // Return null to indicate deletion
-        Navigator.pop(context, null);
-      }
+
+      // Sửa: dùng clear() thay vì update(null)
+      ref.read(businessCardProvider.notifier).clear();
+
+      if (mounted) Navigator.pop(context, null);
     } catch (e) {
       if (mounted) {
         setState(() => _error = 'Delete failed: $e');
@@ -164,232 +175,375 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
     }
   }
 
+  String _formatAddress() {
+    final c = widget.card;
+    if (c?.address == null) return '—';
+
+    final parts = <String>[];
+    final detail = c!.address!.addressDetail;
+    final city = c.address!.city?.name;
+    final state = c.address!.state?.name;
+    final country = c.address!.country?.name;
+
+    if ((detail ?? '').trim().isNotEmpty) parts.add(detail!.trim());
+    if ((city ?? '').trim().isNotEmpty) parts.add(city!.trim());
+    if ((state ?? '').trim().isNotEmpty) parts.add(state!.trim());
+    if ((country ?? '').trim().isNotEmpty) parts.add(country!.trim());
+
+    return parts.isEmpty ? '—' : parts.join(', ');
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Container(
-        color: Colors.transparent,
-        child: DraggableScrollableSheet(
-          initialChildSize: 0.9,
-          minChildSize: 0.5,
-          maxChildSize: 0.95,
-          builder: (_, controller) => Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-            ),
-            child: Column(
-              children: [
-                // Header
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  decoration: const BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(color: Color(0xFFE5E7EB)),
+      onTap: () => Navigator.pop(context),
+      behavior: HitTestBehavior.opaque,
+      child: GestureDetector(
+        onTap: () {},
+        child: Container(
+          color: Colors.transparent,
+          child: DraggableScrollableSheet(
+            initialChildSize: 0.9,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (_, controller) => Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+              ),
+              child: Column(
+                children: [
+                  // Header
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
-                  ),
-                  child: Row(
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.pop(context),
-                        child: const Text('Close'),
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: Color(0xFFE5E7EB)),
                       ),
-                      const Expanded(
-                        child: Text(
-                          'Business Card',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                      if (widget.card != null)
-                        IconButton(
-                          onPressed: _delete,
-                          icon: const Icon(
-                            Icons.delete_outline,
-                            color: Colors.red,
-                          ),
-                        )
-                      else
-                        const SizedBox(width: 48),
-                    ],
-                  ),
-                ),
-
-                // Body
-                Expanded(
-                  child: Form(
-                    key: _formKey,
-                    child: ListView(
-                      controller: controller,
-                      padding: EdgeInsets.only(
-                        left: 16,
-                        right: 16,
-                        top: 16,
-                        bottom: MediaQuery.of(context).viewInsets.bottom + 80,
-                      ),
+                    ),
+                    child: Row(
                       children: [
-                        if (_error != null) ...[
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.red.shade50,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: Colors.red.shade200),
-                            ),
-                            child: Text(
-                              _error!,
-                              style: const TextStyle(color: Colors.red),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                        ],
-
-                        // Public toggle
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: const Color(0xFFE5E7EB)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Make card public',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    SizedBox(height: 2),
-                                    Text(
-                                      'Allow others to view and connect',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              Switch(
-                                value: _isPublic,
-                                onChanged: (v) => setState(() => _isPublic = v),
-                              ),
-                            ],
+                        TextButton(
+                          onPressed: () => Navigator.pop(context),
+                          child: const Text('Close'),
+                        ),
+                        Expanded(
+                          child: Text(
+                            _isEditMode
+                                ? (widget.card != null
+                                      ? 'Edit Card'
+                                      : 'Create Card')
+                                : 'Business Card',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ),
-                        const SizedBox(height: 16),
-
-                        if (widget.company != null)
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.business,
-                                  size: 16,
-                                  color: Colors.blue,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  'Company: ${widget.company!.name}',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.blue,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        const SizedBox(height: 16),
-
-                        _field('Full Name *', _fullNameCtrl, required: true),
-                        _field(
-                          'Email *',
-                          _emailCtrl,
-                          required: true,
-                          keyboardType: TextInputType.emailAddress,
-                        ),
-                        _field('Job Title', _jobTitleCtrl),
-                        _field(
-                          'Phone',
-                          _phoneCtrl,
-                          keyboardType: TextInputType.phone,
-                        ),
-                        _field(
-                          'Mobile',
-                          _mobileCtrl,
-                          keyboardType: TextInputType.phone,
-                        ),
-                        _field(
-                          'Website',
-                          _websiteCtrl,
-                          keyboardType: TextInputType.url,
-                        ),
-                        _field(
-                          'LinkedIn',
-                          _linkedinCtrl,
-                          keyboardType: TextInputType.url,
-                        ),
-                        _field('Notes', _notesCtrl, maxLines: 3),
-                        _field('Address Detail', _addressDetailCtrl),
-
-                        // TODO: Add Country/State/City dropdowns
+                        if (!_isEditMode && widget.card != null)
+                          TextButton(
+                            onPressed: () => setState(() => _isEditMode = true),
+                            child: const Text('Edit'),
+                          )
+                        else if (_isEditMode && widget.card != null)
+                          TextButton(
+                            onPressed: () =>
+                                setState(() => _isEditMode = false),
+                            child: const Text('Cancel'),
+                          )
+                        else
+                          const SizedBox(width: 48),
                       ],
                     ),
                   ),
-                ),
 
-                // Footer
-                SafeArea(
-                  top: false,
-                  child: Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: const BoxDecoration(
-                      border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-                    ),
-                    child: FilledButton(
-                      onPressed: _saving ? null : _save,
-                      style: FilledButton.styleFrom(
-                        minimumSize: const Size(double.infinity, 48),
-                        backgroundColor: Colors.black87,
-                      ),
-                      child: _saving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Text(
-                              widget.card != null
-                                  ? 'Update Card'
-                                  : 'Create Card',
-                            ),
-                    ),
+                  // Body
+                  Expanded(
+                    child: _isEditMode
+                        ? _buildEditForm(controller)
+                        : _buildViewMode(controller),
                   ),
-                ),
-              ],
+
+                  // Footer
+                  if (_isEditMode)
+                    SafeArea(
+                      top: false,
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: const BoxDecoration(
+                          border: Border(
+                            top: BorderSide(color: Color(0xFFE5E7EB)),
+                          ),
+                        ),
+                        child: FilledButton(
+                          onPressed: _saving ? null : _save,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 48),
+                            backgroundColor: Colors.black87,
+                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  widget.card != null
+                                      ? 'Update Card'
+                                      : 'Create Card',
+                                ),
+                        ),
+                      ),
+                    )
+                  else
+                    SafeArea(
+                      top: false,
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: const BoxDecoration(
+                          border: Border(
+                            top: BorderSide(color: Color(0xFFE5E7EB)),
+                          ),
+                        ),
+                        child: FilledButton(
+                          onPressed: _delete,
+                          style: FilledButton.styleFrom(
+                            minimumSize: const Size(double.infinity, 48),
+                            backgroundColor: Colors.red,
+                          ),
+                          child: const Text('Delete Card'),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildEditForm(ScrollController controller) {
+    return Form(
+      key: _formKey,
+      child: ListView(
+        controller: controller,
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 80,
+        ),
+        children: [
+          if (_error != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.red.shade200),
+              ),
+              child: Text(_error!, style: const TextStyle(color: Colors.red)),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Public toggle
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Make card public',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Allow others to view and connect',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _isPublic,
+                  onChanged: (v) => setState(() => _isPublic = v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          if (widget.company != null)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.blue.shade200),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.business, size: 16, color: Colors.blue),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Company: ${widget.company!.name}',
+                    style: const TextStyle(fontSize: 12, color: Colors.blue),
+                  ),
+                ],
+              ),
+            ),
+          const SizedBox(height: 16),
+
+          _field('Full Name *', _fullNameCtrl, required: true),
+          _field(
+            'Email *',
+            _emailCtrl,
+            required: true,
+            keyboardType: TextInputType.emailAddress,
+          ),
+          _field('Job Title', _jobTitleCtrl),
+          _field('Phone', _phoneCtrl, keyboardType: TextInputType.phone),
+          _field('Mobile', _mobileCtrl, keyboardType: TextInputType.phone),
+          _field('Website', _websiteCtrl, keyboardType: TextInputType.url),
+          _field('LinkedIn', _linkedinCtrl, keyboardType: TextInputType.url),
+          _field('Notes', _notesCtrl, maxLines: 3),
+
+          // Address fields (Edit mode with dropdowns)
+          AddressFormFields(
+            addressDetailController: _addressDetailCtrl,
+            initialCountry: _countryCode,
+            initialState: _stateCode,
+            initialCity: _cityCode,
+            onCountryChanged: (val) => _countryCode = val,
+            onStateChanged: (val) => _stateCode = val,
+            onCityChanged: (val) => _cityCode = val,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildViewMode(ScrollController controller) {
+    final c = widget.card;
+    if (c == null) return const SizedBox.shrink();
+
+    Widget _infoRow(String label, String? value) {
+      final v = (value ?? '').trim();
+      if (v.isEmpty) return const SizedBox.shrink();
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 100,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(v, style: const TextStyle(fontSize: 14))),
+          ],
+        ),
+      );
+    }
+
+    return ListView(
+      controller: controller,
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Public status badge
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: c.isPublic == true
+                ? Colors.green.shade50
+                : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: c.isPublic == true
+                  ? Colors.green.shade200
+                  : Colors.grey.shade300,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                c.isPublic == true ? Icons.public : Icons.lock_outline,
+                size: 14,
+                color: c.isPublic == true ? Colors.green : Colors.grey,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                c.isPublic == true ? 'Public' : 'Private',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: c.isPublic == true ? Colors.green : Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+
+        if (widget.company != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blue.shade50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.blue.shade200),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.business, size: 16, color: Colors.blue),
+                const SizedBox(width: 8),
+                Text(
+                  widget.company!.name,
+                  style: const TextStyle(fontSize: 14, color: Colors.blue),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+
+        _infoRow('Full Name', c.fullName),
+        _infoRow('Email', c.email),
+        _infoRow('Job Title', c.jobTitle),
+        _infoRow('Phone', c.phone),
+        _infoRow('Mobile', c.mobile),
+        _infoRow('Website', c.website),
+        _infoRow('LinkedIn', c.linkedin),
+        _infoRow('Notes', c.notes),
+        _infoRow('Address', _formatAddress()),
+      ],
     );
   }
 

@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/storage/secure_storage.dart';
 import '../data/settings_repository.dart';
+import '../data/settings_state.dart';
 import '../data/models/company_models.dart';
 import '../data/models/business_card_models.dart';
 import '../widgets/error_box.dart';
@@ -28,9 +29,6 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   bool _loading = true;
   bool _saving = false;
   String? _error;
-
-  Company? _company;
-  BusinessCard? _businessCard;
 
   @override
   void initState() {
@@ -56,30 +54,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     try {
       final settingsRepo = ref.read(settingsRepositoryProvider);
 
-      // Load data separately to debug
-      print('Loading user data...');
+      // Load user data
       final meData = await settingsRepo.getMe();
-      print('User loaded: ${meData.name}');
 
-      print('Loading company data...');
-      final companyData = await settingsRepo.getCompany();
-      print('Company loaded: ${companyData?.name ?? "null"}');
-
-      print('Loading business card data...');
-      final cardData = await settingsRepo.getBusinessCard();
-      print('Business card loaded: ${cardData?.fullName ?? "null"}');
+      // Load company & business card through providers
+      await ref.read(companyProvider.notifier).load();
+      await ref.read(businessCardProvider.notifier).load();
 
       setState(() {
         _nameCtrl.text = meData.name ?? '';
         _emailCtrl.text = meData.email ?? '';
-        _company = companyData;
-        _businessCard = cardData;
       });
     } on DioException catch (e) {
-      print('DioException: ${e.response?.statusCode} - ${e.response?.data}');
       setState(() => _error = _prettyError(e));
     } catch (e) {
-      print('Error loading settings: $e');
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -187,62 +175,41 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   );
 
   Future<void> _openBusinessCardModal() async {
-    final result = await showModalBottomSheet<BusinessCard?>(
+    final companyAsync = ref.read(companyProvider);
+    final cardAsync = ref.read(businessCardProvider);
+
+    await showModalBottomSheet<BusinessCard?>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) =>
-          BusinessCardEditModal(card: _businessCard, company: _company),
+      builder: (_) => BusinessCardEditModal(
+        card: cardAsync.value,
+        company: companyAsync.value,
+      ),
     );
-
-    // Refresh regardless of result (created, updated, or deleted)
-    if (mounted) {
-      await _load();
-
-      if (result != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _businessCard == null
-                  ? 'Business card created!'
-                  : 'Business card updated!',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    }
+    // Không cần reload - provider đã tự update
   }
 
   Future<void> _openCompanyModal() async {
-    final result = await showModalBottomSheet<Company?>(
+    final companyAsync = ref.read(companyProvider);
+
+    await showModalBottomSheet<Company?>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => CompanyEditModal(company: _company),
+      builder: (_) => CompanyEditModal(company: companyAsync.value),
     );
-
-    // Refresh regardless of result (created, updated, or deleted)
-    if (mounted) {
-      await _load();
-
-      if (result != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              _company == null ? 'Company created!' : 'Company updated!',
-            ),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    }
+    // Không cần reload - provider đã tự update
   }
 
   // --- Build Method ---
 
   @override
   Widget build(BuildContext context) {
+    // Watch providers
+    final companyAsync = ref.watch(companyProvider);
+    final cardAsync = ref.watch(businessCardProvider);
+
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
@@ -263,7 +230,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     const SizedBox(height: 16),
                   ],
 
-                  // ===== Profile Section =====
+                  // ===== Profile Section (KHÔNG THAY ĐỔI) =====
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: _box(),
@@ -322,160 +289,178 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                   ),
                   const SizedBox(height: 16),
 
-                  // ===== Company =====
+                  // ===== Company (DÙNG PROVIDER) =====
                   GestureDetector(
                     onTap: _openCompanyModal,
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: _box(),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.business, size: 20),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Company',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
+                      child: companyAsync.when(
+                        data: (company) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.business, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Company',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
-                              ),
-                              const Spacer(),
-                              Icon(
-                                _company != null
-                                    ? Icons.edit_outlined
-                                    : Icons.add,
-                                size: 20,
-                                color: Colors.grey,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _company?.name ?? 'No company set',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: _company != null
-                                  ? Colors.black87
-                                  : Colors.grey,
-                            ),
-                          ),
-                          if (_company != null) ...[
-                            const SizedBox(height: 8),
-                            Text(
-                              'Last updated: ${DateTime.parse(_company!.updatedAt).toLocal().toString().split(' ')[0]}',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ===== Business Card =====
-                  GestureDetector(
-                    onTap: _openBusinessCardModal,
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: _box(),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.badge_outlined, size: 20),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Business Card',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
+                                const Spacer(),
+                                Icon(
+                                  company != null
+                                      ? Icons.edit_outlined
+                                      : Icons.add,
+                                  size: 20,
+                                  color: Colors.grey,
                                 ),
-                              ),
-                              const Spacer(),
-                              Icon(
-                                _businessCard != null
-                                    ? Icons.edit_outlined
-                                    : Icons.add,
-                                size: 20,
-                                color: Colors.grey,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          if (_businessCard != null) ...[
+                              ],
+                            ),
+                            const SizedBox(height: 12),
                             Text(
-                              _businessCard!.fullName,
-                              style: const TextStyle(
+                              company?.name ?? 'No company set',
+                              style: TextStyle(
                                 fontSize: 14,
-                                fontWeight: FontWeight.w500,
+                                color: company != null
+                                    ? Colors.black87
+                                    : Colors.grey,
                               ),
                             ),
-                            if (_businessCard!.jobTitle != null)
+                            if (company != null) ...[
+                              const SizedBox(height: 8),
                               Text(
-                                _businessCard!.jobTitle!,
+                                'Last updated: ${DateTime.parse(company.updatedAt).toLocal().toString().split(' ')[0]}',
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: Colors.grey,
                                 ),
                               ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Icon(
-                                  _businessCard!.isPublic == true
-                                      ? Icons.public
-                                      : Icons.lock_outline,
-                                  size: 16,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _businessCard!.isPublic == true
-                                      ? 'Public'
-                                      : 'Private',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                const Icon(
-                                  Icons.visibility_outlined,
-                                  size: 16,
-                                  color: Colors.grey,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${_businessCard!.viewCount ?? 0} views',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ] else
-                            const Text(
-                              'No business card set',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey,
-                              ),
-                            ),
-                        ],
+                            ],
+                          ],
+                        ),
+                        loading: () => const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                        error: (e, _) => Text('Error: $e'),
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
 
-                  // ===== Logout =====
+                  // ===== Business Card (DÙNG PROVIDER) =====
+                  GestureDetector(
+                    onTap: _openBusinessCardModal,
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: _box(),
+                      child: cardAsync.when(
+                        data: (card) => Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.badge_outlined, size: 20),
+                                const SizedBox(width: 8),
+                                const Text(
+                                  'Business Card',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Icon(
+                                  card != null
+                                      ? Icons.edit_outlined
+                                      : Icons.add,
+                                  size: 20,
+                                  color: Colors.grey,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            if (card != null) ...[
+                              Text(
+                                card.fullName,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              if (card.jobTitle != null)
+                                Text(
+                                  card.jobTitle!,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  Icon(
+                                    card.isPublic == true
+                                        ? Icons.public
+                                        : Icons.lock_outline,
+                                    size: 16,
+                                    color: Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    card.isPublic == true
+                                        ? 'Public'
+                                        : 'Private',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  const Icon(
+                                    Icons.visibility_outlined,
+                                    size: 16,
+                                    color: Colors.grey,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    '${card.viewCount ?? 0} views',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ] else
+                              const Text(
+                                'No business card set',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                          ],
+                        ),
+                        loading: () => const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: CircularProgressIndicator(),
+                          ),
+                        ),
+                        error: (e, _) => Text('Error: $e'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ===== Logout (KHÔNG THAY ĐỔI) =====
                   OutlinedButton.icon(
                     onPressed: _logout,
                     icon: const Icon(Icons.logout),
