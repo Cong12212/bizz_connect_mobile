@@ -31,6 +31,14 @@ class NotificationsRepository {
     return list.map(AppNotification.fromJson).toList();
   }
 
+  /// Alias for list() - used by reminders_controller
+  Future<List<AppNotification>> getNotifications({
+    NotificationScope scope = NotificationScope.all,
+    int limit = 20,
+  }) {
+    return list(scope: scope, limit: limit);
+  }
+
   Future<AppNotification> markRead(int id) async {
     final res = await _dio.post('/notifications/$id/read');
     final map = (res.data as Map<String, dynamic>);
@@ -53,5 +61,10 @@ class NotificationsRepository {
 
   Future<void> deleteOne(int id) async {
     await _dio.delete('/notifications/$id');
+  }
+
+  /// Debug helper method
+  void debugPrint(String message) {
+    print('[NotificationsRepository] $message');
   }
 }

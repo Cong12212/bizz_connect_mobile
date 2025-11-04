@@ -50,6 +50,38 @@ class AppNotification {
     createdAt: DateTime.parse(j['created_at'] as String),
     updatedAt: DateTime.parse(j['updated_at'] as String),
   );
+
+  AppNotification copyWith({
+    int? id,
+    int? ownerUserId,
+    String? type,
+    String? title,
+    String? body,
+    Map<String, dynamic>? data,
+    int? contactId,
+    int? reminderId,
+    String? status,
+    DateTime? scheduledAt,
+    DateTime? readAt,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return AppNotification(
+      id: id ?? this.id,
+      ownerUserId: ownerUserId ?? this.ownerUserId,
+      type: type ?? this.type,
+      title: title ?? this.title,
+      body: body ?? this.body,
+      data: data ?? this.data,
+      contactId: contactId ?? this.contactId,
+      reminderId: reminderId ?? this.reminderId,
+      status: status ?? this.status,
+      scheduledAt: scheduledAt ?? this.scheduledAt,
+      readAt: readAt ?? this.readAt,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
 }
 
 enum NotificationScope { all, unread, upcoming, past }

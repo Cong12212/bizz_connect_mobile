@@ -13,26 +13,45 @@ class ContactsPage extends ConsumerStatefulWidget {
   ConsumerState<ContactsPage> createState() => _ContactsPageState();
 }
 
-class _ContactsPageState extends ConsumerState<ContactsPage> {
+class _ContactsPageState extends ConsumerState<ContactsPage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   final _qCtrl = TextEditingController();
   Timer? _debounce;
   final LayerLink _sortLink = LayerLink();
   OverlayEntry? _sortEntry;
+  bool _hasLoadedInitial = false;
 
   @override
   void initState() {
     super.initState();
-    // Load initial data
-    Future.microtask(() {
-      ref.read(contactsListControllerProvider.notifier).load();
-    });
 
     _qCtrl.addListener(() {
       _debounce?.cancel();
       _debounce = Timer(const Duration(milliseconds: 300), () {
-        ref.read(contactsListControllerProvider.notifier).setQuery(_qCtrl.text);
+        if (mounted) {
+          ref
+              .read(contactsListControllerProvider.notifier)
+              .setQuery(_qCtrl.text);
+        }
       });
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Load data only once when dependencies are ready
+    if (!_hasLoadedInitial) {
+      _hasLoadedInitial = true;
+      Future.microtask(() {
+        if (mounted) {
+          ref.read(contactsListControllerProvider.notifier).load();
+        }
+      });
+    }
   }
 
   @override
@@ -224,6 +243,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
     final state = ref.watch(contactsListControllerProvider);
 
     final toolbar = SizedBox(

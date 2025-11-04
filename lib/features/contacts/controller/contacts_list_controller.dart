@@ -54,6 +54,7 @@ class ContactsListController extends StateNotifier<ContactsListState> {
   ContactsListController(this.ref) : super(const ContactsListState());
   final Ref ref;
   Timer? _debounce;
+  bool _isInitialized = false;
 
   @override
   void dispose() {
@@ -62,23 +63,42 @@ class ContactsListController extends StateNotifier<ContactsListState> {
   }
 
   Future<void> load() async {
+    // Prevent multiple simultaneous loads
+    if (state.loading) return;
+
+    print(
+      '[ContactsList] Loading: q="${state.q}", page=${state.page}, sort=${state.sort}',
+    );
+
     state = state.copyWith(loading: true, error: null);
     try {
       final repo = ref.read(contactsRepositoryProvider);
       final res = await repo.listContacts(
-        q: state.q,
+        q: state.q.isEmpty ? null : state.q,
         page: state.page,
         perPage: state.per,
         sort: state.sort,
       );
-      state = state.copyWith(
-        loading: false,
-        items: res.data,
-        total: res.total,
-        last: res.lastPage,
+
+      print(
+        '[ContactsList] Loaded: ${res.data.length} items, total=${res.total}',
       );
+
+      // Check if still mounted
+      if (mounted) {
+        state = state.copyWith(
+          loading: false,
+          items: res.data,
+          total: res.total,
+          last: res.lastPage,
+        );
+        _isInitialized = true;
+      }
     } catch (e) {
-      state = state.copyWith(loading: false, error: e.toString());
+      print('[ContactsList] Error: $e');
+      if (mounted) {
+        state = state.copyWith(loading: false, error: e.toString());
+      }
     }
   }
 
@@ -92,9 +112,15 @@ class ContactsListController extends StateNotifier<ContactsListState> {
 
   void setQuery(String q) {
     _debounce?.cancel();
+
+    // Update state immediately to show search text
+    state = state.copyWith(q: q, page: 1);
+
+    // Debounce the actual API call
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      state = state.copyWith(q: q, page: 1);
-      load();
+      if (mounted) {
+        load();
+      }
     });
   }
 
@@ -105,7 +131,7 @@ class ContactsListController extends StateNotifier<ContactsListState> {
   }
 
   Future<void> setPage(int p) async {
-    if (p == state.page) return;
+    if (p == state.page || state.loading) return;
     state = state.copyWith(page: p);
     await load();
   }
@@ -114,9 +140,9 @@ class ContactsListController extends StateNotifier<ContactsListState> {
     if (state.loading) return;
 
     final repo = ref.read(contactsRepositoryProvider);
-
     final prev = state;
 
+    // Optimistic update
     final newItems = state.items.where((c) => c.id != id).toList();
     state = state.copyWith(
       items: newItems,
@@ -125,19 +151,21 @@ class ContactsListController extends StateNotifier<ContactsListState> {
     );
 
     try {
-      await repo.deleteContact(id); // <-- API DELETE thực sự
+      await repo.deleteContact(id);
 
-      // Tải lại trang hiện tại
+      // Reload to get accurate data
       await load();
 
-      // Nếu trang hiện tại vượt quá last (xoá item cuối ở trang cuối)
-      if (state.page > state.last && state.last > 0) {
+      // If current page is beyond last page, go to last page
+      if (mounted && state.page > state.last && state.last > 0) {
         state = state.copyWith(page: state.last);
         await load();
       }
     } catch (e) {
-      // Rollback nếu lỗi
-      state = prev.copyWith(error: e.toString());
+      // Rollback on error
+      if (mounted) {
+        state = prev.copyWith(error: e.toString());
+      }
     }
   }
 }

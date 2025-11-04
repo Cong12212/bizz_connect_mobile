@@ -2,12 +2,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:dio/dio.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../data/settings_repository.dart';
 import '../data/settings_state.dart';
 import '../data/models/business_card_models.dart';
 import '../data/models/company_models.dart';
 import '../widgets/address_form_fields.dart';
+import '../services/business_card_generator.dart';
+import 'e_card_preview_dialog.dart';
 
 class BusinessCardEditModal extends ConsumerStatefulWidget {
   const BusinessCardEditModal({
@@ -45,6 +48,7 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
 
   bool _saving = false;
   String? _error;
+  bool _isProcessing = false;
 
   late bool _isEditMode;
 
@@ -172,6 +176,49 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
       if (mounted) {
         setState(() => _error = 'Delete failed: $e');
       }
+    }
+  }
+
+  Future<void> _generateECard() async {
+    final card = widget.card;
+    if (card == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please save business card first'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isProcessing = true);
+
+    try {
+      final generator = BusinessCardGenerator();
+      final images = await generator.generateCardImages(card, widget.company);
+
+      if (mounted) {
+        final result = await showDialog<bool>(
+          context: context,
+          builder: (_) =>
+              ECardPreviewDialog(frontImage: images[0], backImage: images[1]),
+        );
+
+        // Clean up temp files
+        for (final img in images) {
+          if (await img.exists()) {
+            await img.delete();
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to generate E-Card: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
   }
 
@@ -476,63 +523,20 @@ class _BusinessCardEditModalState extends ConsumerState<BusinessCardEditModal> {
       controller: controller,
       padding: const EdgeInsets.all(16),
       children: [
-        // Public status badge
+        // E-Card button
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          decoration: BoxDecoration(
-            color: c.isPublic == true
-                ? Colors.green.shade50
-                : Colors.grey.shade100,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: c.isPublic == true
-                  ? Colors.green.shade200
-                  : Colors.grey.shade300,
+          margin: const EdgeInsets.only(bottom: 16),
+          child: OutlinedButton.icon(
+            onPressed: _generateECard,
+            icon: const Icon(Icons.credit_card),
+            label: const Text('Create E-Business Card'),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              foregroundColor: const Color(0xFF3B82F6),
+              side: const BorderSide(color: Color(0xFF3B82F6)),
             ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                c.isPublic == true ? Icons.public : Icons.lock_outline,
-                size: 14,
-                color: c.isPublic == true ? Colors.green : Colors.grey,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                c.isPublic == true ? 'Public' : 'Private',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: c.isPublic == true ? Colors.green : Colors.grey,
-                ),
-              ),
-            ],
           ),
         ),
-        const SizedBox(height: 20),
-
-        if (widget.company != null) ...[
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blue.shade50,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.blue.shade200),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.business, size: 16, color: Colors.blue),
-                const SizedBox(width: 8),
-                Text(
-                  widget.company!.name,
-                  style: const TextStyle(fontSize: 14, color: Colors.blue),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-        ],
 
         _infoRow('Full Name', c.fullName),
         _infoRow('Email', c.email),

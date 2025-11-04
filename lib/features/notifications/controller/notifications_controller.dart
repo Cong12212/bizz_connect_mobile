@@ -1,4 +1,7 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/services/notification_service.dart';
 import '../data/notification_models.dart';
 import '../data/notifications_repository.dart';
 
@@ -33,21 +36,62 @@ class NotificationsState {
 }
 
 class NotificationsController extends StateNotifier<NotificationsState> {
-  NotificationsController(this._ref) : super(const NotificationsState());
+  NotificationsController(this._ref) : super(const NotificationsState()) {
+    _setupListeners();
+  }
+
   final Ref _ref;
+  StreamSubscription? _newNotificationSubscription;
+  StreamSubscription? _markReadSubscription;
 
   NotificationsRepository get _repo =>
       _ref.read(notificationsRepositoryProvider);
 
-  Future<void> load() async {
-    state = state.copyWith(loading: true, error: null);
+  void _setupListeners() {
+    final notificationService = _ref.read(notificationServiceProvider);
+
+    // Listen for new notifications
+    _newNotificationSubscription = notificationService.onNewNotification.listen(
+      (_) {
+        loadSilent();
+      },
+    );
+
+    // Listen for mark read events
+    _markReadSubscription = notificationService.onMarkRead.listen((id) {
+      _updateNotificationStatus(id, 'read');
+    });
+  }
+
+  void _updateNotificationStatus(int id, String status) {
+    state = state.copyWith(
+      items: state.items.map((n) {
+        if (n.id == id) {
+          return n.copyWith(status: status, readAt: DateTime.now());
+        }
+        return n;
+      }).toList(),
+    );
+  }
+
+  Future<void> loadSilent() async {
+    // Load without showing loading indicator
     try {
-      final items = await _repo.list(scope: state.scope, limit: 20);
-      state = state.copyWith(items: items, selected: <int>{});
+      final items = await _repo.getNotifications(scope: state.scope, limit: 50);
+      state = state.copyWith(items: items);
     } catch (e) {
-      state = state.copyWith(error: e.toString());
-    } finally {
+      debugPrint('Silent refresh failed: $e');
+    }
+  }
+
+  Future<void> load() async {
+    state = state.copyWith(loading: true);
+    try {
+      final items = await _repo.getNotifications(scope: state.scope, limit: 50);
+      state = state.copyWith(items: items, loading: false);
+    } catch (e) {
       state = state.copyWith(loading: false);
+      debugPrint('Load failed: $e');
     }
   }
 
@@ -76,55 +120,61 @@ class NotificationsController extends StateNotifier<NotificationsState> {
     state = state.copyWith(selected: next);
   }
 
-  Future<void> markRead(int id) async {
-    await _repo.markRead(id);
-    final items = state.items
-        .map(
-          (n) => n.id == id
-              ? AppNotification.fromJson({
-                  ..._toJson(n),
-                  'status': 'read',
-                  'read_at': DateTime.now().toIso8601String(),
-                })
-              : n,
-        )
-        .toList();
-    state = state.copyWith(items: items);
+  Future<void> markRead(int notificationId) async {
+    try {
+      await _repo.bulkRead([notificationId]);
+
+      // Update local state immediately
+      state = state.copyWith(
+        items: state.items.map((n) {
+          if (n.id == notificationId) {
+            return n.copyWith(status: 'read', readAt: DateTime.now());
+          }
+          return n;
+        }).toList(),
+      );
+
+      // Notify other parts of app
+      _ref.read(notificationServiceProvider).notifyMarkRead(notificationId);
+    } catch (e) {
+      debugPrint('Mark read failed: $e');
+    }
   }
 
   Future<void> bulkRead() async {
-    final ids = state.selected.toList();
-    if (ids.isEmpty) return;
-    await _repo.bulkRead(ids);
-    final items = state.items
-        .map(
-          (n) => state.selected.contains(n.id)
-              ? AppNotification.fromJson({
-                  ..._toJson(n),
-                  'status': 'read',
-                  'read_at': DateTime.now().toIso8601String(),
-                })
-              : n,
-        )
-        .toList();
-    state = state.copyWith(items: items, selected: <int>{});
+    if (state.selected.isEmpty) return;
+
+    final selectedIds = state.selected.toList();
+
+    try {
+      await _repo.bulkRead(selectedIds);
+
+      // Update local state immediately
+      state = state.copyWith(
+        items: state.items.map((n) {
+          if (selectedIds.contains(n.id)) {
+            return n.copyWith(status: 'read', readAt: DateTime.now());
+          }
+          return n;
+        }).toList(),
+        selected: {},
+      );
+
+      // Notify for each marked notification
+      for (final id in selectedIds) {
+        _ref.read(notificationServiceProvider).notifyMarkRead(id);
+      }
+    } catch (e) {
+      debugPrint('Bulk read failed: $e');
+    }
   }
 
-  Map<String, dynamic> _toJson(AppNotification n) => {
-    'id': n.id,
-    'owner_user_id': n.ownerUserId,
-    'type': n.type,
-    'title': n.title,
-    'body': n.body,
-    'data': n.data,
-    'contact_id': n.contactId,
-    'reminder_id': n.reminderId,
-    'status': n.status,
-    'scheduled_at': n.scheduledAt?.toIso8601String(),
-    'read_at': n.readAt?.toIso8601String(),
-    'created_at': n.createdAt.toIso8601String(),
-    'updated_at': n.updatedAt.toIso8601String(),
-  };
+  @override
+  void dispose() {
+    _newNotificationSubscription?.cancel();
+    _markReadSubscription?.cancel();
+    super.dispose();
+  }
 }
 
 final notificationsControllerProvider =
