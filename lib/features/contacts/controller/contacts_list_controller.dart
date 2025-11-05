@@ -18,7 +18,7 @@ class ContactsListState {
   const ContactsListState({
     this.q = '',
     this.page = 1,
-    this.per = 30,
+    this.per = 20,
     this.sort = 'name',
     this.loading = false,
     this.error,

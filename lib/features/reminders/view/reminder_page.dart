@@ -133,7 +133,7 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
       return const Center(child: Text('No reminders'));
     }
     return ListView.builder(
-      key: const PageStorageKey('reminders_list'), // save scroll position
+      key: const PageStorageKey('reminders_list'),
       padding: const EdgeInsets.all(8),
       itemCount: page.data.length,
       itemBuilder: (_, i) {
@@ -152,11 +152,10 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
             });
           },
           onTap: () {
-            // open bottom sheet to view details / quick actions
             showModalBottomSheet(
               context: context,
-              showDragHandle: true,
               isScrollControlled: true,
+              useSafeArea: true,
               builder: (_) => _ReminderDetailSheet(reminder: r),
             );
           },
@@ -203,44 +202,90 @@ class _ReminderDetailSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return Padding(
+    return Container(
+      width: double.infinity,
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 16,
         left: 16,
         right: 16,
-        top: 8,
+        top: 16,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(reminder.title, style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 12),
+          if (reminder.note != null && reminder.note!.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(reminder.note!, style: Theme.of(context).textTheme.bodyMedium),
+          ],
+          if (reminder.dueAt != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const Icon(Icons.calendar_today, size: 16),
+                const SizedBox(width: 4),
+                Text(
+                  '${reminder.dueAt!.day}/${reminder.dueAt!.month}/${reminder.dueAt!.year}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
           Row(
             children: [
-              FilledButton.icon(
-                onPressed: reminder.status == ReminderStatus.done
-                    ? null
-                    : () => ref
-                          .read(reminderCrudProvider.notifier)
-                          .markDone(reminder.id),
-                icon: const Icon(Icons.check),
-                label: const Text('Mark done'),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: reminder.status == ReminderStatus.done
+                      ? null
+                      : () async {
+                          await ref
+                              .read(reminderCrudProvider.notifier)
+                              .markDone(reminder.id);
+                          if (context.mounted) Navigator.pop(context);
+                        },
+                  icon: const Icon(Icons.check),
+                  label: const Text('Mark done'),
+                ),
               ),
               const SizedBox(width: 8),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  await ref
-                      .read(reminderCrudProvider.notifier)
-                      .delete(reminder.id);
-                  if (context.mounted) Navigator.pop(context);
-                },
-                icon: const Icon(Icons.delete_outline),
-                label: const Text('Delete'),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () async {
+                    final confirm = await showDialog<bool>(
+                      context: context,
+                      builder: (_) => AlertDialog(
+                        title: const Text('Delete this reminder?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context, false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.pop(context, true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirm == true && context.mounted) {
+                      await ref
+                          .read(reminderCrudProvider.notifier)
+                          .delete(reminder.id);
+                      if (context.mounted) Navigator.pop(context);
+                    }
+                  },
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Delete'),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
         ],
       ),
     );

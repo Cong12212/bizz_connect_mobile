@@ -22,11 +22,17 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
   Timer? _debounce;
   final LayerLink _sortLink = LayerLink();
   OverlayEntry? _sortEntry;
-  bool _hasLoadedInitial = false;
 
   @override
   void initState() {
     super.initState();
+
+    // Load data after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(contactsListControllerProvider.notifier).load();
+      }
+    });
 
     _qCtrl.addListener(() {
       _debounce?.cancel();
@@ -38,20 +44,6 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
         }
       });
     });
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Load data only once when dependencies are ready
-    if (!_hasLoadedInitial) {
-      _hasLoadedInitial = true;
-      Future.microtask(() {
-        if (mounted) {
-          ref.read(contactsListControllerProvider.notifier).load();
-        }
-      });
-    }
   }
 
   @override

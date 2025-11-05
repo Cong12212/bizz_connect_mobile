@@ -13,16 +13,31 @@ class Paginated<T> {
     required this.lastPage,
   });
 
+  factory Paginated.empty() {
+    return Paginated<T>(
+      data: const [],
+      total: 0,
+      perPage: 0,
+      currentPage: 1,
+      lastPage: 1,
+    );
+  }
+
   static Paginated<R> fromJson<R>(
     Map<String, dynamic> j,
     R Function(Object?) mapItem,
   ) {
+    // Handle both snake_case and camelCase from API
+    final perPageValue = j['per_page'] ?? j['perPage'] ?? 0;
+    final currentPageValue = j['current_page'] ?? j['currentPage'] ?? 1;
+    final lastPageValue = j['last_page'] ?? j['lastPage'] ?? 1;
+
     return Paginated<R>(
-      data: (j['data'] as List).map(mapItem).toList(),
-      total: j['total'] as int,
-      perPage: j['per_page'] as int,
-      currentPage: j['current_page'] as int,
-      lastPage: j['last_page'] as int,
+      data: (j['data'] as List? ?? []).map(mapItem).toList(),
+      total: j['total'] as int? ?? 0,
+      perPage: perPageValue as int,
+      currentPage: currentPageValue as int,
+      lastPage: lastPageValue as int,
     );
   }
 }

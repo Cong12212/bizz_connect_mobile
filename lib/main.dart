@@ -2,8 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app/router/app_router.dart';
 import 'app/bootstrap/app_bootstrapper.dart';
+import 'core/services/local_notification_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize local notifications
+  final notificationService = LocalNotificationService();
+  await notificationService.initialize();
+
   runApp(const ProviderScope(child: BizConnectApp()));
 }
 

@@ -1,56 +1,73 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../features/notifications/controller/unread_count_provider.dart';
 
-class RootShell extends StatelessWidget {
+class RootShell extends ConsumerWidget {
   const RootShell({super.key, required this.navigationShell});
   final StatefulNavigationShell navigationShell;
 
-  void _onTap(int i) {
+  void _onTap(BuildContext context, int i) {
     navigationShell.goBranch(
       i,
-      // Nếu đang ở đúng tab và muốn về root của tab đó
       initialLocation: i == navigationShell.currentIndex,
     );
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadCount = ref.watch(unreadNotificationsCountProvider);
+
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SafeArea(child: navigationShell), // nội dung tab
+      body: SafeArea(child: navigationShell),
       bottomNavigationBar: NavigationBar(
         selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: _onTap,
+        onDestinationSelected: (i) => _onTap(context, i),
         height: 64,
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
         surfaceTintColor: Colors.white,
         indicatorColor: const Color.fromARGB(255, 84, 178, 255),
-        destinations: const [
-          NavigationDestination(
+        destinations: [
+          const NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home_rounded),
             label: 'Home',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.people_outline),
             selectedIcon: Icon(Icons.people_rounded),
             label: 'Contacts',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.qr_code_scanner),
-            selectedIcon: Icon(
-              Icons.qr_code_scanner,
-            ), // không có filled → giữ nguyên
+            selectedIcon: Icon(Icons.qr_code_scanner),
             label: 'Scan',
           ),
           NavigationDestination(
-            // Nếu muốn badge số lượng thông báo, dùng Badge:
-            // icon: Badge(label: Text('3'), child: Icon(Icons.notifications_none)),
-            icon: Icon(Icons.notifications_none),
-            selectedIcon: Icon(Icons.notifications),
+            icon: unreadCount.when(
+              data: (count) => count > 0
+                  ? Badge(
+                      label: Text('$count'),
+                      child: const Icon(Icons.notifications_none),
+                    )
+                  : const Icon(Icons.notifications_none),
+              loading: () => const Icon(Icons.notifications_none),
+              error: (_, __) => const Icon(Icons.notifications_none),
+            ),
+            selectedIcon: unreadCount.when(
+              data: (count) => count > 0
+                  ? Badge(
+                      label: Text('$count'),
+                      child: const Icon(Icons.notifications),
+                    )
+                  : const Icon(Icons.notifications),
+              loading: () => const Icon(Icons.notifications),
+              error: (_, __) => const Icon(Icons.notifications),
+            ),
             label: 'Alerts',
           ),
-          NavigationDestination(
+          const NavigationDestination(
             icon: Icon(Icons.settings_outlined),
             selectedIcon: Icon(Icons.settings),
             label: 'Settings',

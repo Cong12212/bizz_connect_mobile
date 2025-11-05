@@ -3,6 +3,7 @@ import '../data/reminder_model.dart';
 import '../data/reminders_repository.dart';
 import 'reminders_list_controller.dart';
 import '../../../core/services/notification_service.dart';
+import '../../../core/services/local_notification_service.dart';
 
 class ReminderCrudController extends AsyncNotifier<void> {
   @override
@@ -12,12 +13,20 @@ class ReminderCrudController extends AsyncNotifier<void> {
     state = const AsyncLoading();
     try {
       final repo = ref.read(remindersRepositoryProvider);
-      await repo.createReminder(input);
+      final reminder = await repo.createReminder(input);
 
-      // Trigger notification refresh
+      // Schedule local notification if has due date
+      if (reminder.dueAt != null) {
+        final notificationService = ref.read(localNotificationServiceProvider);
+        await notificationService.scheduleReminderNotification(
+          reminderId: reminder.id,
+          title: 'Reminder: ${reminder.title}',
+          body: reminder.note ?? 'Upcoming reminder in 10 minutes',
+          scheduledTime: reminder.dueAt!,
+        );
+      }
+
       ref.read(notificationServiceProvider).notifyNewNotification();
-
-      // Reload list
       await ref.read(remindersListProvider.notifier).refresh();
       state = const AsyncData(null);
     } catch (e, st) {
@@ -30,7 +39,21 @@ class ReminderCrudController extends AsyncNotifier<void> {
     state = const AsyncLoading();
     try {
       final repo = ref.read(remindersRepositoryProvider);
-      await repo.updateReminder(id, input);
+      final reminder = await repo.updateReminder(id, input);
+
+      // Reschedule notification
+      final notificationService = ref.read(localNotificationServiceProvider);
+      await notificationService.cancelNotification(id);
+
+      if (reminder.dueAt != null && reminder.status == ReminderStatus.pending) {
+        await notificationService.scheduleReminderNotification(
+          reminderId: reminder.id,
+          title: 'Reminder: ${reminder.title}',
+          body: reminder.note ?? 'Upcoming reminder in 10 minutes',
+          scheduledTime: reminder.dueAt!,
+        );
+      }
+
       await ref.read(remindersListProvider.notifier).refresh();
       state = const AsyncData(null);
     } catch (e, st) {
@@ -44,6 +67,11 @@ class ReminderCrudController extends AsyncNotifier<void> {
     try {
       final repo = ref.read(remindersRepositoryProvider);
       await repo.deleteReminder(id);
+
+      // Cancel notification
+      final notificationService = ref.read(localNotificationServiceProvider);
+      await notificationService.cancelNotification(id);
+
       await ref.read(remindersListProvider.notifier).refresh();
       state = const AsyncData(null);
     } catch (e, st) {
@@ -57,6 +85,11 @@ class ReminderCrudController extends AsyncNotifier<void> {
     try {
       final repo = ref.read(remindersRepositoryProvider);
       await repo.markReminderDone(id);
+
+      // Cancel notification when marked done
+      final notificationService = ref.read(localNotificationServiceProvider);
+      await notificationService.cancelNotification(id);
+
       await ref.read(remindersListProvider.notifier).refresh();
       state = const AsyncData(null);
     } catch (e, st) {

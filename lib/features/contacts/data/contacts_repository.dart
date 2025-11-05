@@ -52,9 +52,9 @@ class ContactsRepository {
     String? remStatus,
     String? remAfter,
     String? remBefore,
-    String? city, // thêm
-    String? state, // thêm
-    String? country, // thêm
+    String? city,
+    String? state,
+    String? country,
   }) async {
     final p = <String, dynamic>{};
     if (q?.isNotEmpty == true) p['q'] = q;
@@ -75,16 +75,54 @@ class ContactsRepository {
       if (remAfter != null) p['after'] = remAfter;
       if (remBefore != null) p['before'] = remBefore;
     }
-
     if (city?.isNotEmpty == true) p['city'] = city;
     if (state?.isNotEmpty == true) p['state'] = state;
     if (country?.isNotEmpty == true) p['country'] = country;
 
-    final res = await _dio.get('/contacts', queryParameters: p);
-    return Paginated.fromJson(
-      res.data as Map<String, dynamic>,
-      (obj) => Contact.fromJson(obj as Map<String, dynamic>),
-    );
+    try {
+      print('[ContactsRepository] Fetching contacts with params: $p');
+
+      final res = await _dio.get('/contacts', queryParameters: p);
+
+      print('[ContactsRepository] Response status: ${res.statusCode}');
+      print(
+        '[ContactsRepository] Response data type: ${res.data?.runtimeType}',
+      );
+
+      // Check if response is null or empty
+      if (res.data == null) {
+        print('[ContactsRepository] Response data is null, returning empty');
+        return Paginated<Contact>.empty();
+      }
+
+      // Check if response is a Map
+      if (res.data is! Map<String, dynamic>) {
+        print(
+          '[ContactsRepository] Response is not a Map: ${res.data.runtimeType}',
+        );
+        return Paginated<Contact>.empty();
+      }
+
+      final jsonData = res.data as Map<String, dynamic>;
+      print(
+        '[ContactsRepository] Parsing ${jsonData['data']?.length ?? 0} contacts',
+      );
+
+      final result = Paginated.fromJson(
+        jsonData,
+        (obj) => Contact.fromJson(obj as Map<String, dynamic>),
+      );
+
+      print(
+        '[ContactsRepository] Successfully loaded ${result.data.length} contacts, total: ${result.total}',
+      );
+
+      return result;
+    } catch (e, stackTrace) {
+      print('[ContactsRepository] ❌ Error loading contacts: $e');
+      print('[ContactsRepository] StackTrace: $stackTrace');
+      rethrow;
+    }
   }
 
   Future<Paginated<Contact>> listRecentContacts({String q = ''}) async {
