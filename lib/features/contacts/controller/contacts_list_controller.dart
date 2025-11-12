@@ -102,6 +102,33 @@ class ContactsListController extends StateNotifier<ContactsListState> {
     }
   }
 
+  Future<void> loadMore() async {
+    if (state.loading || state.page >= state.last) return;
+
+    final nextPage = state.page + 1;
+
+    try {
+      final repo = ref.read(contactsRepositoryProvider);
+      final res = await repo.listContacts(
+        q: state.q.isEmpty ? null : state.q,
+        page: nextPage,
+        perPage: state.per,
+        sort: state.sort,
+      );
+
+      if (mounted) {
+        state = state.copyWith(
+          page: nextPage,
+          items: [...state.items, ...res.data], // Append items
+          total: res.total,
+          last: res.lastPage,
+        );
+      }
+    } catch (e) {
+      print('[ContactsList] Error loading more: $e');
+    }
+  }
+
   void refreshContact(Contact updatedContact) {
     final newItems = state.items.map((c) {
       return c.id == updatedContact.id ? updatedContact : c;

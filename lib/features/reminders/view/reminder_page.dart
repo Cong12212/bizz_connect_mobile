@@ -48,12 +48,25 @@ class _RemindersPageState extends ConsumerState<RemindersPage>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // required when using AutomaticKeepAliveClientMixin
+    super.build(context);
     final listState = ref.watch(remindersListProvider);
+    final router = GoRouter.of(context);
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            if (router.canPop()) {
+              router.pop();
+            } else {
+              context.go('/home');
+            }
+          },
+        ),
         title: const Text('Reminders'),
+        backgroundColor: const Color(0xFF3B82F6),
+        foregroundColor: Colors.white,
         actions: [
           PopupMenuButton<ReminderStatus?>(
             tooltip: 'Filter Status',

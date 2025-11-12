@@ -29,7 +29,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
     refreshListenable: notifier,
     routes: [
       GoRoute(path: '/splash', builder: (_, __) => const SplashGate()),
-      // public
+      // public routes (outside shell)
       GoRoute(path: '/login', builder: (_, __) => const LoginPage()),
       GoRoute(path: '/signup', builder: (_, __) => const SignUpPage()),
       GoRoute(
@@ -37,13 +37,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (_, st) => VerifyEmailPage(emailArg: st.extra as String?),
       ),
       GoRoute(path: '/forgot', builder: (_, __) => const ForgotRequestPage()),
-      GoRoute(path: '/tags', builder: (_, __) => const TagsPage()),
-      GoRoute(path: '/reminders', builder: (_, __) => const RemindersPage()),
       GoRoute(
         path: '/reset-verify',
         builder: (_, __) => const ForgotVerifyPage(),
       ),
-      // shell tabs...
+
+      // Standalone pages (outside shell - no bottom nav)
+      GoRoute(path: '/tags', builder: (_, __) => const TagsPage()),
+      GoRoute(path: '/reminders', builder: (_, __) => const RemindersPage()),
+
+      // Shell routes (with bottom navigation)
       StatefulShellRoute.indexedStack(
         builder: (context, state, navShell) =>
             RootShell(navigationShell: navShell),
@@ -57,12 +60,28 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: '/contacts',
-                builder: (_, __) => const ContactsPage(),
+                builder: (_, state) {
+                  final openContactId =
+                      state.uri.queryParameters['openContactId'];
+                  return ContactsPage(
+                    openContactId: openContactId != null
+                        ? int.tryParse(openContactId)
+                        : null,
+                  );
+                },
                 routes: [
-                  GoRoute(path: 'tags', builder: (_, __) => const TagsPage()),
                   GoRoute(
-                    path: 'reminders',
-                    builder: (_, __) => const RemindersPage(),
+                    path: 'new',
+                    builder: (_, state) {
+                      return const ContactsPage(openContactId: -1);
+                    },
+                  ),
+                  GoRoute(
+                    path: ':id',
+                    builder: (_, state) {
+                      final id = int.tryParse(state.pathParameters['id'] ?? '');
+                      return ContactsPage(openContactId: id);
+                    },
                   ),
                 ],
               ),

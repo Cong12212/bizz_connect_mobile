@@ -309,24 +309,16 @@ class _ScanPageState extends State<ScanPage> {
       appBar: AppBar(
         title: const Text('Scan Business Card'),
         centerTitle: true,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            if (_step == ScanStep.front) {
-              context.pop();
-            } else {
-              _resetScan();
-            }
-          },
-        ),
-        actions: [
-          // Add QR scan button
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            tooltip: 'Scan QR Code',
-            onPressed: _isProcessing ? null : _scanQRCode,
-          ),
-        ],
+        // leading: IconButton(
+        //   icon: const Icon(Icons.arrow_back),
+        //   onPressed: () {
+        //     if (_step == ScanStep.front) {
+        //       context.pop();
+        //     } else {
+        //       _resetScan();
+        //     }
+        //   },
+        // ),
       ),
       body: Stack(
         children: [

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/services/notification_service.dart';
 import '../data/notification_models.dart';
 import '../data/notifications_repository.dart';
+import 'unread_count_provider.dart';
 
 class NotificationsState {
   final List<AppNotification> items;
@@ -136,6 +137,9 @@ class NotificationsController extends StateNotifier<NotificationsState> {
 
       // Notify other parts of app
       _ref.read(notificationServiceProvider).notifyMarkRead(notificationId);
+
+      // Immediately refresh the unread count badge
+      _ref.invalidate(unreadNotificationsCountProvider);
     } catch (e) {
       debugPrint('Mark read failed: $e');
     }
@@ -164,6 +168,9 @@ class NotificationsController extends StateNotifier<NotificationsState> {
       for (final id in selectedIds) {
         _ref.read(notificationServiceProvider).notifyMarkRead(id);
       }
+
+      // Immediately refresh the unread count badge
+      _ref.invalidate(unreadNotificationsCountProvider);
     } catch (e) {
       debugPrint('Bulk read failed: $e');
     }

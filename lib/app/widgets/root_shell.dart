@@ -1,102 +1,196 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/notifications/controller/unread_count_provider.dart';
 
-class RootShell extends ConsumerWidget {
+class RootShell extends ConsumerStatefulWidget {
   const RootShell({super.key, required this.navigationShell});
   final StatefulNavigationShell navigationShell;
 
+  @override
+  ConsumerState<RootShell> createState() => _RootShellState();
+}
+
+class _RootShellState extends ConsumerState<RootShell> {
+  bool _isNavBarVisible = true;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.userScrollDirection ==
+        ScrollDirection.reverse) {
+      if (_isNavBarVisible) setState(() => _isNavBarVisible = false);
+    } else if (_scrollController.position.userScrollDirection ==
+        ScrollDirection.forward) {
+      if (!_isNavBarVisible) setState(() => _isNavBarVisible = true);
+    }
+  }
+
   void _onTap(BuildContext context, int i) {
-    navigationShell.goBranch(
+    widget.navigationShell.goBranch(
       i,
-      initialLocation: i == navigationShell.currentIndex,
+      initialLocation: i == widget.navigationShell.currentIndex,
     );
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final unreadCount = ref.watch(unreadNotificationsCountProvider);
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SafeArea(child: navigationShell),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: navigationShell.currentIndex,
-        onDestinationSelected: (i) => _onTap(context, i),
-        height: 64,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        surfaceTintColor: Colors.white,
-        indicatorColor: const Color.fromARGB(255, 84, 178, 255),
-        destinations: [
-          const NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded),
-            label: 'Home',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people_rounded),
-            label: 'Contacts',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.qr_code_scanner),
-            selectedIcon: Icon(Icons.qr_code_scanner),
-            label: 'Scan',
-          ),
-          NavigationDestination(
-            icon: unreadCount.when(
-              data: (count) => count > 0
-                  ? Badge(
-                      label: Text('$count'),
-                      child: const Icon(Icons.notifications_none),
-                    )
-                  : const Icon(Icons.notifications_none),
-              loading: () => const Icon(Icons.notifications_none),
-              error: (_, __) => const Icon(Icons.notifications_none),
-            ),
-            selectedIcon: unreadCount.when(
-              data: (count) => count > 0
-                  ? Badge(
-                      label: Text('$count'),
-                      child: const Icon(Icons.notifications),
-                    )
-                  : const Icon(Icons.notifications),
-              loading: () => const Icon(Icons.notifications),
-              error: (_, __) => const Icon(Icons.notifications),
-            ),
-            label: 'Alerts',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
+      extendBody: true,
+      body: Container(
+        color: Colors.white,
+        child: SafeArea(child: widget.navigationShell),
       ),
-    );
-  }
-}
-
-class _Dot extends StatelessWidget {
-  const _Dot({this.selected = false});
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 18,
-      height: 18,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: selected
-            ? Colors.white
-            : const Color.fromARGB(255, 255, 255, 255),
-        border: Border.all(
-          color: selected
-              ? Colors.white
-              : const Color.fromARGB(0, 96, 183, 255),
-          width: 2,
+      bottomNavigationBar: AnimatedSlide(
+        duration: const Duration(milliseconds: 300),
+        offset: _isNavBarVisible ? Offset.zero : const Offset(0, 1),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 20,
+                offset: const Offset(0, -5),
+              ),
+            ],
+          ),
+          child: NavigationBar(
+            selectedIndex: widget.navigationShell.currentIndex,
+            onDestinationSelected: (i) => _onTap(context, i),
+            height: 80,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            indicatorColor: const Color(0xFF60B7FF).withOpacity(0.2),
+            indicatorShape: const CircleBorder(),
+            elevation: 0,
+            destinations: [
+              NavigationDestination(
+                icon: Icon(
+                  Icons.home_outlined,
+                  color: widget.navigationShell.currentIndex == 0
+                      ? const Color(0xFF60B7FF)
+                      : Colors.grey[400],
+                ),
+                selectedIcon: const Icon(
+                  Icons.home_rounded,
+                  color: Color(0xFF60B7FF),
+                ),
+                label: 'Home',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.people_outline,
+                  color: widget.navigationShell.currentIndex == 1
+                      ? const Color(0xFF60B7FF)
+                      : Colors.grey[400],
+                ),
+                selectedIcon: const Icon(
+                  Icons.people,
+                  color: Color(0xFF60B7FF),
+                ),
+                label: 'Contacts',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.qr_code_scanner,
+                  color: widget.navigationShell.currentIndex == 2
+                      ? const Color(0xFF60B7FF)
+                      : Colors.grey[400],
+                ),
+                selectedIcon: const Icon(
+                  Icons.qr_code_scanner,
+                  color: Color(0xFF60B7FF),
+                ),
+                label: 'Scan',
+              ),
+              NavigationDestination(
+                icon: unreadCount.when(
+                  data: (count) => count > 0
+                      ? Badge(
+                          label: Text('$count'),
+                          backgroundColor: Colors.red,
+                          textColor: Colors.white,
+                          child: Icon(
+                            Icons.notifications_none,
+                            color: widget.navigationShell.currentIndex == 3
+                                ? const Color(0xFF60B7FF)
+                                : Colors.grey[400],
+                          ),
+                        )
+                      : Icon(
+                          Icons.notifications_none,
+                          color: widget.navigationShell.currentIndex == 3
+                              ? const Color(0xFF60B7FF)
+                              : Colors.grey[400],
+                        ),
+                  loading: () => Icon(
+                    Icons.notifications_none,
+                    color: widget.navigationShell.currentIndex == 3
+                        ? const Color(0xFF60B7FF)
+                        : Colors.grey[400],
+                  ),
+                  error: (_, __) => Icon(
+                    Icons.notifications_none,
+                    color: widget.navigationShell.currentIndex == 3
+                        ? const Color(0xFF60B7FF)
+                        : Colors.grey[400],
+                  ),
+                ),
+                selectedIcon: unreadCount.when(
+                  data: (count) => count > 0
+                      ? Badge(
+                          label: Text('$count'),
+                          backgroundColor: Colors.red,
+                          textColor: Colors.white,
+                          child: const Icon(
+                            Icons.notifications,
+                            color: Color(0xFF60B7FF),
+                          ),
+                        )
+                      : const Icon(
+                          Icons.notifications,
+                          color: Color(0xFF60B7FF),
+                        ),
+                  loading: () =>
+                      const Icon(Icons.notifications, color: Color(0xFF60B7FF)),
+                  error: (_, __) =>
+                      const Icon(Icons.notifications, color: Color(0xFF60B7FF)),
+                ),
+                label: 'Alerts',
+              ),
+              NavigationDestination(
+                icon: Icon(
+                  Icons.person_outline,
+                  color: widget.navigationShell.currentIndex == 4
+                      ? const Color(0xFF60B7FF)
+                      : Colors.grey[400],
+                ),
+                selectedIcon: const Icon(
+                  Icons.person,
+                  color: Color(0xFF60B7FF),
+                ),
+                label: 'Settings',
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -5,7 +5,6 @@ import '../../features/auth/controller/auth_controller.dart';
 
 class RouterNotifier extends ChangeNotifier {
   RouterNotifier(this.ref) {
-    // chỉ cần thế này, KHÔNG cần <AuthState>
     ref.listen(authControllerProvider, (_, __) => notifyListeners());
   }
 

@@ -87,28 +87,6 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
       ),
       body: Column(
         children: [
-          // Header tabs
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-            ),
-            child: Row(
-              children: [
-                _TabButton(
-                  label: 'All',
-                  selected: s.scope == NotificationScope.all,
-                  onTap: () => c.setScope(NotificationScope.all),
-                ),
-                const SizedBox(width: 8),
-                _TabButton(
-                  label: 'Unread (${unreadCount})',
-                  selected: s.scope == NotificationScope.unread,
-                  onTap: () => c.setScope(NotificationScope.unread),
-                ),
-              ],
-            ),
-          ),
           Expanded(
             child: RefreshIndicator(
               onRefresh: () async {
@@ -123,7 +101,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
                   final unread = n.status == 'unread';
 
                   return InkWell(
-                    onTap: () => _openNotification(context, n),
+                    onTap: () => _onTapNotification(n),
                     child: Container(
                       color: unread ? const Color(0xFFEFF6FF) : Colors.white,
                       padding: const EdgeInsets.all(12),
@@ -275,9 +253,23 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage>
     );
   }
 
-  void _openNotification(BuildContext context, AppNotification n) {
-    final path = _targetPath(n);
-    context.push(path);
+  void _onTapNotification(AppNotification n) {
+    // Mark as read when tapped
+    if (n.status == 'unread') {
+      ref.read(notificationsControllerProvider.notifier).markRead(n.id);
+    }
+
+    // Navigate based on notification type
+    if (n.contactId != null) {
+      // Navigate to contacts page with query param to auto-open modal
+      context.go('/contacts?openContactId=${n.contactId}');
+    } else if (n.reminderId != null) {
+      context.go('/reminders');
+    } else if (n.type.startsWith('contact')) {
+      context.go('/contacts');
+    } else if (n.type.startsWith('reminder')) {
+      context.go('/reminders');
+    }
   }
 
   String _formatWhen(AppNotification n) {

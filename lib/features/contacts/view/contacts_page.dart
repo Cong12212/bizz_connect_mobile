@@ -1,13 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../controller/contacts_list_controller.dart';
 import '../data/models.dart';
+import '../data/contacts_repository.dart';
 import 'contact_detail_modal.dart';
 
 class ContactsPage extends ConsumerStatefulWidget {
-  const ContactsPage({super.key});
+  const ContactsPage({super.key, this.openContactId});
+
+  final int? openContactId;
 
   @override
   ConsumerState<ContactsPage> createState() => _ContactsPageState();
@@ -22,12 +26,13 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
   Timer? _debounce;
   final LayerLink _sortLink = LayerLink();
   OverlayEntry? _sortEntry;
+  final ScrollController _scrollController = ScrollController();
+  bool _isLoadingMore = false;
 
   @override
   void initState() {
     super.initState();
 
-    // Load data after first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         ref.read(contactsListControllerProvider.notifier).load();
@@ -38,12 +43,26 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
       _debounce?.cancel();
       _debounce = Timer(const Duration(milliseconds: 300), () {
         if (mounted) {
+          // Scroll to top when searching
+          if (_scrollController.hasClients) {
+            _scrollController.jumpTo(0);
+          }
           ref
               .read(contactsListControllerProvider.notifier)
               .setQuery(_qCtrl.text);
         }
       });
     });
+
+    // Infinite scroll listener
+    _scrollController.addListener(_onScroll);
+
+    // Auto-open contact detail modal if openContactId is provided
+    if (widget.openContactId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _openContactById(widget.openContactId!);
+      });
+    }
   }
 
   @override
@@ -51,35 +70,59 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
     _hideSortPopover();
     _qCtrl.dispose();
     _debounce?.cancel();
+    _scrollController.dispose();
     super.dispose();
   }
 
+  void _onScroll() {
+    if (_isLoadingMore) return;
+
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    final delta = 200.0; // Trigger khi còn cách 200px từ cuối
+
+    if (maxScroll - currentScroll <= delta) {
+      _loadMore();
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final state = ref.read(contactsListControllerProvider);
+    if (state.page >= state.last) return; // Đã hết data
+
+    setState(() => _isLoadingMore = true);
+    await ref.read(contactsListControllerProvider.notifier).loadMore();
+    setState(() => _isLoadingMore = false);
+  }
+
   Future<void> _openViewModal(Contact c) async {
-    final updated = await showModalBottomSheet<Contact?>(
+    final updated = await showDialog<Contact?>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
       builder: (_) => ContactDetailModal.initialView(contact: c),
     );
 
-    // Only refresh specific item instead of reloading all
+    // Just reload if updated
     if (updated != null && mounted) {
-      ref.read(contactsListControllerProvider.notifier).refreshContact(updated);
+      await ref.read(contactsListControllerProvider.notifier).load();
     }
   }
 
   Future<void> _openCreateModal() async {
-    final created = await showModalBottomSheet<Contact?>(
+    final created = await showDialog<Contact?>(
       context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
       builder: (_) => const ContactDetailModal.initialCreate(),
     );
 
     if (created != null && mounted) {
-      await ref.read(contactsListControllerProvider.notifier).load();
+      // Invalidate and reload immediately
+      ref.invalidate(contactsListControllerProvider);
+
+      // Wait a frame for rebuild
+      await Future.delayed(Duration.zero);
+
+      if (mounted) {
+        await ref.read(contactsListControllerProvider.notifier).load();
+      }
     }
   }
 
@@ -103,27 +146,32 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
     final selected = await showMenu<String>(
       context: buttonContext,
       position: RelativeRect.fromLTRB(left, top, right, bottom),
-      elevation: 10,
+      elevation: 4,
+      color: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      items:
-          const {
-            'name': 'A→Z',
-            '-name': 'Z→A',
-            '-id': 'Newest',
-            'id': 'Oldest',
-          }.entries.map((e) {
-            final isCurrent = e.key == current;
-            return PopupMenuItem<String>(
-              value: e.key,
-              child: Row(
-                children: [
-                  if (isCurrent) const Icon(Icons.check, size: 18),
-                  if (isCurrent) const SizedBox(width: 6),
-                  Text(e.value),
-                ],
+      items: const {'name': 'A→Z', '-id': 'Newest'}.entries.map((e) {
+        final isCurrent = e.key == current;
+        return PopupMenuItem<String>(
+          value: e.key,
+          child: Row(
+            children: [
+              if (isCurrent)
+                const Icon(Icons.check, size: 18, color: Color(0xFF3B82F6)),
+              if (isCurrent) const SizedBox(width: 8),
+              Text(
+                e.value,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: isCurrent
+                      ? const Color(0xFF3B82F6)
+                      : const Color(0xFF374151),
+                  fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400,
+                ),
               ),
-            );
-          }).toList(),
+            ],
+          ),
+        );
+      }).toList(),
     );
 
     if (selected != null && selected != current) {
@@ -133,9 +181,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
 
   static const Map<String, String> _sortOptions = {
     'name': 'A→Z',
-    '-name': 'Z→A',
     '-id': 'Newest',
-    'id': 'Oldest',
   };
 
   void _hideSortPopover() {
@@ -164,13 +210,13 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
               showWhenUnlinked: false,
               offset: const Offset(-160, 44),
               child: Material(
-                elevation: 10,
+                elevation: 4,
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 220),
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    padding: const EdgeInsets.all(16),
                     child: StatefulBuilder(
                       builder: (_, setLocal) => Column(
                         mainAxisSize: MainAxisSize.min,
@@ -178,24 +224,42 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                         children: [
                           const Text(
                             'Sort by',
-                            style: TextStyle(fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 16,
+                              color: Color(0xFF111827),
+                            ),
                           ),
+                          const SizedBox(height: 12),
                           ..._sortOptions.entries.map(
                             (e) => RadioListTile<String>(
                               dense: true,
                               visualDensity: VisualDensity.compact,
                               value: e.key,
                               groupValue: temp,
-                              title: Text(e.value),
+                              activeColor: const Color(0xFF3B82F6),
+                              title: Text(
+                                e.value,
+                                style: const TextStyle(fontSize: 14),
+                              ),
                               onChanged: (v) => setLocal(() => temp = v!),
                             ),
                           ),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 12),
                           Row(
                             children: [
                               Expanded(
                                 child: OutlinedButton(
                                   onPressed: _hideSortPopover,
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFF6B7280),
+                                    side: const BorderSide(
+                                      color: Color(0xFFE5E7EB),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
                                   child: const Text('Cancel'),
                                 ),
                               ),
@@ -213,6 +277,14 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                                           .setSort(temp);
                                     }
                                   },
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF3B82F6),
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    elevation: 0,
+                                  ),
                                   child: const Text('Apply'),
                                 ),
                               ),
@@ -233,37 +305,79 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
     Overlay.of(context, rootOverlay: true).insert(_sortEntry!);
   }
 
+  Future<void> _openContactById(int contactId) async {
+    if (contactId == -1) {
+      // Open create modal
+      await _openCreateModal();
+      return;
+    }
+
+    try {
+      final repo = ref.read(contactsRepositoryProvider);
+      final contact = await repo.getContact(contactId);
+
+      if (!mounted) return;
+
+      await showDialog<Contact?>(
+        context: context,
+        builder: (_) => ContactDetailModal.initialView(contact: contact),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to load contact: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    super.build(context);
     final state = ref.watch(contactsListControllerProvider);
 
     final toolbar = SizedBox(
-      height: 60,
+      height: 64,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+          border: Border(bottom: BorderSide(color: Color(0xFFF3F4F6))),
         ),
         child: Row(
           children: [
             Expanded(
               child: TextField(
                 controller: _qCtrl,
+                style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
                 decoration: InputDecoration(
                   hintText: 'Search name, email, phone…',
+                  hintStyle: const TextStyle(
+                    color: Color(0xFFD1D5DB),
+                    fontSize: 14,
+                  ),
                   prefixIcon: const Icon(
                     Icons.search,
                     size: 20,
-                    color: Color(0xFF64748B),
+                    color: Color(0xFF9CA3AF),
                   ),
                   contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
+                    horizontal: 16,
+                    vertical: 12,
                   ),
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(
+                      color: Color(0xFF3B82F6),
+                      width: 1.5,
+                    ),
                   ),
                   isDense: true,
                   fillColor: Colors.white,
@@ -271,43 +385,48 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                 ),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 12),
             SizedBox(
               width: 40,
               height: 40,
               child: Builder(
-                builder: (btnCtx) => SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: Material(
-                    color: Colors.white,
-                    shape: const CircleBorder(
-                      side: BorderSide(color: Color(0xFFE5E7EB)),
-                    ),
-                    child: InkWell(
-                      customBorder: const CircleBorder(),
-                      onTap: () => _openSortMenu(btnCtx),
-                      child: const Center(
-                        child: Icon(
-                          Icons.filter_list,
-                          size: 20,
-                          color: Colors.black87,
-                        ),
+                builder: (btnCtx) => Material(
+                  color: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(8),
+                    onTap: () => _openSortMenu(btnCtx),
+                    child: const Center(
+                      child: Icon(
+                        Icons.filter_list,
+                        size: 20,
+                        color: Color(0xFF6B7280),
                       ),
                     ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 8),
-            FilledButton(
-              onPressed: _openCreateModal,
-              style: FilledButton.styleFrom(
-                padding: const EdgeInsets.all(8),
-                minimumSize: const Size(40, 40),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: FilledButton(
+                onPressed: _openCreateModal,
+                style: FilledButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  backgroundColor: const Color(0xFF3B82F6),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Icon(Icons.add, size: 20),
               ),
-              child: const Icon(Icons.add, size: 20),
             ),
           ],
         ),
@@ -331,7 +450,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-            child: state.loading
+            child: state.loading && state.items.isEmpty
                 ? ListView.separated(
                     itemCount: 8,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
@@ -350,185 +469,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                       style: TextStyle(color: Color(0xFF64748B)),
                     ),
                   )
-                : ListView.separated(
-                    itemCount: state.items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (_, i) {
-                      final c = state.items[i];
-                      final tags = (c.tags ?? []).take(2).toList();
-
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: () => _openViewModal(c),
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE5E7EB)),
-                          ),
-                          child: Row(
-                            children: [
-                              _Avatar(name: c.name),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      c.name,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      c.jobTitle ??
-                                          c.company ??
-                                          c.email ??
-                                          c.phone ??
-                                          '—',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        color: Color(0xFF64748B),
-                                      ),
-                                    ),
-                                    if (tags.isNotEmpty) ...[
-                                      const SizedBox(height: 4),
-                                      Wrap(
-                                        spacing: 4,
-                                        runSpacing: 2,
-                                        children: [
-                                          ...tags.map(
-                                            (t) => Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFEFF6FF),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                                border: Border.all(
-                                                  color: const Color(
-                                                    0xFFBFDBFE,
-                                                  ),
-                                                ),
-                                              ),
-                                              child: Text(
-                                                '#${t.name}',
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                  color: Color(0xFF2563EB),
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                          if ((c.tags ?? []).length > 2)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFF1F5F9),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                '+${(c.tags?.length ?? 0) - 2}',
-                                                style: const TextStyle(
-                                                  fontSize: 10,
-                                                  color: Color(0xFF64748B),
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              TextButton(
-                                onPressed: () async {
-                                  final ok = await showDialog<bool>(
-                                    context: context,
-                                    builder: (dialogCtx) => AlertDialog(
-                                      title: const Text('Delete this contact?'),
-                                      actions: [
-                                        TextButton(
-                                          onPressed: () => Navigator.of(
-                                            dialogCtx,
-                                          ).pop(false),
-                                          child: const Text('Cancel'),
-                                        ),
-                                        FilledButton(
-                                          onPressed: () =>
-                                              Navigator.of(dialogCtx).pop(true),
-                                          child: const Text('Delete'),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-
-                                  if (ok == true && mounted) {
-                                    await ref
-                                        .read(
-                                          contactsListControllerProvider
-                                              .notifier,
-                                        )
-                                        .deleteContact(c.id);
-                                  }
-                                },
-                                style: TextButton.styleFrom(
-                                  foregroundColor: const Color(0xFFDC2626),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 6,
-                                  ),
-                                ),
-                                child: const Text(
-                                  'Delete',
-                                  style: TextStyle(fontSize: 12),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ),
-        // Pager
-        Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-              child: _CompactPager(
-                current: state.page,
-                total: state.last,
-                onPage: (p) => ref
-                    .read(contactsListControllerProvider.notifier)
-                    .setPage(p),
-                maxNumbers: 4,
-              ),
-            ),
+                : _buildGroupedList(state),
           ),
         ),
       ],
@@ -548,8 +489,8 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                     final leftW = maxW < 768 ? maxW : 420.0;
                     return Row(
                       children: [
-                        ConstrainedBox(
-                          constraints: BoxConstraints.tightFor(width: leftW),
+                        SizedBox(
+                          width: leftW,
                           child: DecoratedBox(
                             decoration: const BoxDecoration(
                               color: Colors.white,
@@ -557,7 +498,11 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                                 right: BorderSide(color: Color(0xFFE5E7EB)),
                               ),
                             ),
-                            child: list,
+                            child: SizedBox.expand(
+                              // 👈 đảm bảo nhận full chiều cao khả dụng
+                              child:
+                                  list, // (Column có Expanded bên trong giờ mới hợp lệ)
+                            ),
                           ),
                         ),
                         if (maxW >= 768)
@@ -566,6 +511,295 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                     );
                   },
                 ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGroupedList(ContactsListState state) {
+    final groupedItems = <String, List<Contact>>{};
+
+    for (final contact in state.items) {
+      final header = _getGroupHeader(contact, state.sort);
+      if (!groupedItems.containsKey(header)) {
+        groupedItems[header] = [];
+      }
+      groupedItems[header]!.add(contact);
+    }
+
+    final sections = groupedItems.entries.toList();
+    int totalItemCount = 0;
+    for (final section in sections) {
+      totalItemCount += 1 + section.value.length; // header + items
+    }
+    if (_isLoadingMore) totalItemCount += 1;
+
+    return ListView.builder(
+      controller: _scrollController,
+      itemCount: totalItemCount,
+      itemBuilder: (_, index) {
+        int currentIndex = 0;
+
+        for (final section in sections) {
+          // Header
+          if (index == currentIndex) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(4, 12, 4, 8),
+              child: Text(
+                section.key,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1E293B),
+                ),
+              ),
+            );
+          }
+          currentIndex++;
+
+          // Items in this section
+          final sectionItems = section.value;
+          if (index < currentIndex + sectionItems.length) {
+            final itemIndex = index - currentIndex;
+            final c = sectionItems[itemIndex];
+            return _buildContactCard(c);
+          }
+          currentIndex += sectionItems.length;
+        }
+
+        // Loading indicator at the end
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: CircularProgressIndicator(),
+          ),
+        );
+      },
+    );
+  }
+
+  String _getGroupHeader(Contact contact, String sort) {
+    if (sort == 'name') {
+      final firstChar = contact.name.isNotEmpty
+          ? contact.name[0].toUpperCase()
+          : '#';
+      return firstChar;
+    } else {
+      // Group by date (-id for newest)
+      final dateStr = contact.createdAt;
+      if (dateStr == null || dateStr.isEmpty) return 'Unknown';
+
+      final date = DateTime.tryParse(dateStr);
+      if (date == null) return 'Unknown';
+
+      final now = DateTime.now();
+      final diff = now.difference(date).inDays;
+
+      if (diff == 0) return 'Today';
+      if (diff == 1) return 'Yesterday';
+      if (diff < 7) return 'This Week';
+      if (diff < 30) return 'This Month';
+
+      final month = date.month;
+      final year = date.year;
+      return '$month/$year';
+    }
+  }
+
+  Widget _buildContactCard(Contact c) {
+    final tags = (c.tags ?? []).take(2).toList();
+    final totalTags = c.tags?.length ?? 0;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _openViewModal(c),
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+          ),
+          child: Row(
+            children: [
+              _Avatar(name: c.name ?? ''),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      c.name ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      c.jobTitle ?? c.company ?? c.email ?? c.phone ?? '—',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                    if (tags.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: [
+                          ...tags.map(
+                            (t) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFEFF6FF),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: const Color(0xFFBFDBFE),
+                                ),
+                              ),
+                              child: Text(
+                                '#${t.name ?? ''}',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFF2563EB),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ),
+                          if (totalTags > 2)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '+${totalTags - 2}',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFF64748B),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: () async {
+                  final ok = await showDialog<bool>(
+                    context: context,
+                    builder: (dialogCtx) => AlertDialog(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      backgroundColor: Colors.white,
+                      contentPadding: const EdgeInsets.all(24),
+                      title: const Text(
+                        'Delete Contact',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                      content: const Text(
+                        'Are you sure you want to delete this contact? This action cannot be undone.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF6B7280),
+                          height: 1.5,
+                        ),
+                      ),
+                      actions: [
+                        SizedBox(
+                          height: 44,
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(false),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF6B7280),
+                              side: const BorderSide(color: Color(0xFFE5E7EB)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text(
+                              'Cancel',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          height: 44,
+                          child: FilledButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B82F6),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              elevation: 0,
+                            ),
+                            child: const Text(
+                              'Delete',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+
+                  if (ok == true && mounted) {
+                    await ref
+                        .read(contactsListControllerProvider.notifier)
+                        .deleteContact(c.id);
+
+                    // Reload after delete
+                    if (mounted) {
+                      await ref
+                          .read(contactsListControllerProvider.notifier)
+                          .load();
+                    }
+                  }
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFFDC2626),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
+                ),
+                child: const Text('Delete', style: TextStyle(fontSize: 12)),
               ),
             ],
           ),
@@ -599,161 +833,6 @@ class _Avatar extends StatelessWidget {
         initials,
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
-    );
-  }
-}
-
-class _NumberPager extends StatelessWidget {
-  const _NumberPager({
-    required this.current,
-    required this.total,
-    required this.onPage,
-  });
-  final int current;
-  final int total;
-  final ValueChanged<int> onPage;
-
-  List<dynamic> _visiblePages(int current, int total, {int max = 7}) {
-    if (total <= max) return List.generate(total, (i) => i + 1);
-    final half = max ~/ 2;
-    var start = (current - half).clamp(1, total);
-    var end = (start + max - 1).clamp(1, total);
-    start = (end - max + 1).clamp(1, total);
-    final pages = <dynamic>[];
-    if (start > 1) {
-      pages.add(1);
-      if (start > 2) pages.add('...');
-    }
-    for (var i = start; i <= end; i++) pages.add(i);
-    if (end < total) {
-      if (end < total - 1) pages.add('...');
-      pages.add(total);
-    }
-    return pages;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final pages = _visiblePages(current, total);
-    final btn = TextButton.styleFrom(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      foregroundColor: Colors.black87,
-    );
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        TextButton(
-          onPressed: current > 1 ? () => onPage(1) : null,
-          style: btn,
-          child: const Text('«'),
-        ),
-        TextButton(
-          onPressed: current > 1 ? () => onPage(current - 1) : null,
-          style: btn,
-          child: const Text('‹'),
-        ),
-        ...pages.map(
-          (n) => n == '...'
-              ? const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: Text('…', style: TextStyle(color: Color(0xFF64748B))),
-                )
-              : TextButton(
-                  onPressed: n == current ? null : () => onPage(n as int),
-                  style: n == current
-                      ? btn.merge(
-                          ButtonStyle(
-                            backgroundColor: WidgetStateProperty.all(
-                              const Color(0xFFEFF6FF),
-                            ),
-                          ),
-                        )
-                      : btn,
-                  child: Text('$n'),
-                ),
-        ),
-        TextButton(
-          onPressed: current < total ? () => onPage(current + 1) : null,
-          style: btn,
-          child: const Text('›'),
-        ),
-        TextButton(
-          onPressed: current < total ? () => onPage(total) : null,
-          style: btn,
-          child: const Text('»'),
-        ),
-      ],
-    );
-  }
-}
-
-class _CompactPager extends StatelessWidget {
-  const _CompactPager({
-    required this.current,
-    required this.total,
-    required this.onPage,
-    this.maxNumbers = 3,
-  });
-
-  final int current;
-  final int total;
-  final ValueChanged<int> onPage;
-  final int maxNumbers;
-
-  List<int> _numbers() {
-    if (total <= 0) return const [];
-    final half = maxNumbers ~/ 2;
-    var start = (current - half).clamp(1, total);
-    var end = (start + maxNumbers - 1).clamp(1, total);
-    start = (end - maxNumbers + 1).clamp(1, total);
-    return [for (var i = start; i <= end; i++) i];
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final nums = _numbers();
-    ButtonStyle numStyle(bool active) => TextButton.styleFrom(
-      minimumSize: const Size(36, 36),
-      padding: EdgeInsets.zero,
-      foregroundColor: active ? const Color(0xFF2563EB) : Colors.black87,
-      backgroundColor: active ? const Color(0xFFEFF6FF) : null,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    );
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        IconButton(
-          onPressed: current > 1 ? () => onPage(1) : null,
-          icon: const Icon(Icons.first_page),
-          tooltip: 'First',
-        ),
-        IconButton(
-          onPressed: current > 1 ? () => onPage(current - 1) : null,
-          icon: const Icon(Icons.chevron_left),
-          tooltip: 'Prev',
-        ),
-        ...nums.map(
-          (n) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: TextButton(
-              style: numStyle(n == current),
-              onPressed: n == current ? null : () => onPage(n),
-              child: Text('$n'),
-            ),
-          ),
-        ),
-        IconButton(
-          onPressed: current < total ? () => onPage(current + 1) : null,
-          icon: const Icon(Icons.chevron_right),
-          tooltip: 'Next',
-        ),
-        IconButton(
-          onPressed: current < total ? () => onPage(total) : null,
-          icon: const Icon(Icons.last_page),
-          tooltip: 'Last',
-        ),
-      ],
     );
   }
 }

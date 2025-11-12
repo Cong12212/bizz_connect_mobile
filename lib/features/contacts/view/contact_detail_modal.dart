@@ -45,6 +45,7 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
   Contact? _contact;
 
   // Form controllers
+  final _formKey = GlobalKey<FormState>();
   final _name = TextEditingController();
   final _job = TextEditingController();
   final _company = TextEditingController();
@@ -114,12 +115,10 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
   }
 
   Future<void> _save() async {
-    if (_name.text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Name is required')));
+    if (!_formKey.currentState!.validate()) {
       return;
     }
+
     setState(() => _saving = true);
     try {
       final repo = ref.read(contactsRepositoryProvider);
@@ -178,26 +177,66 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
     final c = _contact;
     if (c == null) return;
 
-    final router = GoRouter.of(context);
     Navigator.pop(context, _contact);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      router.push('/contacts/reminders');
+      context.go('/reminders');
     });
   }
 
   Future<void> _delete() async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete this contact?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: Colors.white,
+        contentPadding: const EdgeInsets.all(24),
+        title: const Text(
+          'Delete Contact',
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF111827),
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this contact? This action cannot be undone.',
+          style: TextStyle(fontSize: 14, color: Color(0xFF6B7280), height: 1.5),
+        ),
+        actions: [
+          SizedBox(
+            height: 44,
+            child: OutlinedButton(
+              onPressed: () => Navigator.pop(context, false),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF6B7280),
+                side: const BorderSide(color: Color(0xFFE5E7EB)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              ),
+            ),
+          ),
+          SizedBox(
+            height: 44,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF3B82F6),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                elevation: 0,
+              ),
+              child: const Text(
+                'Delete',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
           ),
         ],
       ),
@@ -311,133 +350,117 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
       _Mode.view => 'Contact details',
     };
 
-    return GestureDetector(
-      onTap: () => FocusScope.of(context).unfocus(),
-      child: Container(
-        color: Colors.transparent,
-        child: FractionallySizedBox(
-          heightFactor: 0.95,
-          widthFactor: 1,
-          alignment: Alignment.bottomCenter,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Material(
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: SizedBox(
+        width: 600,
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: Column(
+          children: [
+            // ===== Header =====
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: const BoxDecoration(
                 color: Colors.white,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(16),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.max,
-                  children: [
-                    // Top bar
-                    Container(
-                      height: 52,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      decoration: const BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: Color(0xFFE5E7EB)),
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          TextButton(
-                            onPressed: () {
-                              Navigator.pop<Contact?>(context, _contact);
-                            },
-                            child: const Text('Close'),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (isEditing)
-                            SizedBox(
-                              height: 36,
-                              child: FilledButton(
-                                onPressed: _saving ? null : _save,
-                                style: FilledButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                  ),
-                                  minimumSize: const Size(64, 36),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: _saving
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Text('Save'),
-                              ),
-                            ),
-                        ],
+                border: Border(bottom: BorderSide(color: Color(0xFFF3F4F6))),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1F2937),
                       ),
                     ),
-
-                    // Body
-                    Expanded(
-                      child: SingleChildScrollView(
-                        padding: EdgeInsets.only(
-                          left: 16,
-                          right: 16,
-                          top: 12,
-                          bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
-                        ),
-                        child: isEditing ? _buildForm() : _buildView(),
-                      ),
-                    ),
-
-                    // Bottom actions
-                    if (!isEditing && _contact != null)
-                      SafeArea(
-                        top: false,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: _delete,
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: const Color(0xFFDC2626),
-                                    side: const BorderSide(
-                                      color: Color(0xFFFCA5A5),
-                                    ),
-                                  ),
-                                  child: const Text('Delete'),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: FilledButton(
-                                  onPressed: () =>
-                                      setState(() => _mode = _Mode.edit),
-                                  child: const Text('Edit'),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop<Contact?>(context, _contact),
+                    icon: const Icon(Icons.close, size: 20),
+                    padding: EdgeInsets.zero,
+                    color: const Color(0xFF6B7280),
+                  ),
+                ],
               ),
             ),
-          ),
+
+            // ===== Body scrollable =====
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: isEditing ? _buildForm() : _buildView(),
+              ),
+            ),
+
+            // ===== Footer =====
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: Color(0xFFF3F4F6))),
+              ),
+              child: isEditing
+                  ? Center(
+                      child: SizedBox(
+                        width: double.infinity,
+                        height: 48,
+                        child: FilledButton(
+                          onPressed: _saving ? null : _save,
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFF3B82F6),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Text(
+                                  _mode == _Mode.create ? 'Next' : 'Save',
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                        ),
+                      ),
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: _delete,
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFDC2626),
+                              side: const BorderSide(color: Color(0xFFFCA5A5)),
+                            ),
+                            child: const Text('Delete'),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () => setState(() => _mode = _Mode.edit),
+                            child: const Text('Edit'),
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ],
         ),
       ),
     );
@@ -445,54 +468,251 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
 
   // ===== Form helpers =====
   Widget _buildForm() {
-    Widget f(String label, TextEditingController c, {TextInputType? type}) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            label,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          _buildTextField(
+            label: 'First Name',
+            controller: _name,
+            isRequired: true,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'First name is required';
+              }
+              final firstChar = value.trim()[0];
+              if (!RegExp(r'^[a-zA-Z0-9]').hasMatch(firstChar)) {
+                return 'Name must start with a letter or number';
+              }
+              return null;
+            },
           ),
-          const SizedBox(height: 6),
-          TextField(
-            controller: c,
-            keyboardType: type,
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              filled: true,
-              fillColor: const Color(0xFFF8FAFC),
-            ),
+          _buildTextField(
+            label: 'Job Title',
+            controller: _job,
+            isRequired: true,
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Job title is required';
+              }
+              return null;
+            },
           ),
-          const SizedBox(height: 12),
+          _buildTextField(label: 'Company', controller: _company),
+          _buildTextField(
+            label: 'Email Address',
+            controller: _email,
+            keyboardType: TextInputType.emailAddress,
+            prefixIcon: Icons.email,
+          ),
+          _buildTextField(
+            label: 'Phone Number',
+            controller: _phone,
+            keyboardType: TextInputType.phone,
+            prefixIcon: Icons.phone,
+          ),
+          _buildTextField(label: 'Address Detail', controller: _addressDetail),
+          _buildDropdown(
+            label: 'Country',
+            value: _countryCode?.isEmpty == true ? null : _countryCode,
+            items: _countries,
+            onChanged: (val) async {
+              setState(() {
+                _countryCode = val;
+                _stateCode = null;
+                _cityCode = null;
+                _states = [];
+                _cities = [];
+              });
+              if (val != null && val.isNotEmpty) {
+                await _loadStates(val);
+              }
+            },
+          ),
+          _buildDropdown(
+            label: 'State',
+            value: _stateCode?.isEmpty == true ? null : _stateCode,
+            items: _states,
+            onChanged: (val) async {
+              setState(() {
+                _stateCode = val;
+                _cityCode = null;
+                _cities = [];
+              });
+              if (val != null && val.isNotEmpty) {
+                await _loadCities(val);
+              }
+            },
+          ),
+          _buildDropdown(
+            label: 'City',
+            value: _cityCode?.isEmpty == true ? null : _cityCode,
+            items: _cities,
+            onChanged: (val) {
+              setState(() => _cityCode = val);
+            },
+          ),
+          _buildTextField(label: 'Notes', controller: _notes, maxLines: 3),
+          _buildTextField(
+            label: 'LinkedIn URL',
+            controller: _linkedin,
+            keyboardType: TextInputType.url,
+          ),
+          _buildTextField(
+            label: 'Website URL',
+            controller: _website,
+            keyboardType: TextInputType.url,
+          ),
         ],
-      );
-    }
+      ),
+    );
+  }
 
+  Widget _buildTextField({
+    required String label,
+    required TextEditingController controller,
+    bool isRequired = false,
+    String? Function(String?)? validator,
+    TextInputType? keyboardType,
+    IconData? prefixIcon,
+    int maxLines = 1,
+  }) {
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        f('Name *', _name),
-        f('Job Title', _job),
-        f('Company', _company),
-        f('Email', _email, type: TextInputType.emailAddress),
-        f('Phone', _phone, type: TextInputType.phone),
-        f('Address detail', _addressDetail),
-        _countryDropdown(),
-        const SizedBox(height: 12),
-        _stateDropdown(),
-        const SizedBox(height: 12),
-        _cityDropdown(),
-        const SizedBox(height: 12),
-        f('Notes', _notes),
-        f('LinkedIn URL', _linkedin, type: TextInputType.url),
-        f('Website URL', _website, type: TextInputType.url),
+        Row(
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF374151),
+              ),
+            ),
+            if (isRequired)
+              const Text(
+                ' *',
+                style: TextStyle(color: Color(0xFFEF4444), fontSize: 14),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          maxLines: maxLines,
+          validator: validator,
+          style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
+          decoration: InputDecoration(
+            hintText: label,
+            hintStyle: const TextStyle(
+              color: Color(0xFFD1D5DB),
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+            prefixIcon: prefixIcon != null
+                ? Icon(prefixIcon, size: 20, color: const Color(0xFF9CA3AF))
+                : null,
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(
+              horizontal: prefixIcon != null ? 12 : 16,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: Color(0xFF3B82F6),
+                width: 1.5,
+              ),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFEF4444)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: Color(0xFFEF4444),
+                width: 1.5,
+              ),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  Widget _buildDropdown({
+    required String label,
+    required String? value,
+    required List<GeoItem> items,
+    required void Function(String?) onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF374151),
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: value,
+          isExpanded: true,
+          style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
+          decoration: InputDecoration(
+            hintText: 'Select $label',
+            hintStyle: const TextStyle(
+              color: Color(0xFFD1D5DB),
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+            isDense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 14,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(color: Color(0xFFE5E7EB), width: 1),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: const BorderSide(
+                color: Color(0xFF3B82F6),
+                width: 1.5,
+              ),
+            ),
+            filled: true,
+            fillColor: Colors.white,
+          ),
+          items: items
+              .map((e) => DropdownMenuItem(value: e.code, child: Text(e.name)))
+              .toList(),
+          onChanged: onChanged,
+        ),
+        const SizedBox(height: 16),
       ],
     );
   }
@@ -683,10 +903,9 @@ class _ContactDetailModalState extends ConsumerState<ContactDetailModal> {
                         icon: Icons.settings_outlined,
                         label: 'Manage tags',
                         onTap: () {
-                          final router = GoRouter.of(context);
                           Navigator.pop(context, _contact);
                           WidgetsBinding.instance.addPostFrameCallback((_) {
-                            router.push('/contacts/tags');
+                            context.go('/tags');
                           });
                         },
                       ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../controller/tags_list_controller.dart';
 import '../data/tag_models.dart';
 
@@ -26,11 +27,24 @@ class _TagsPageState extends ConsumerState<TagsPage> {
   Widget build(BuildContext context) {
     final state = ref.watch(tagsListControllerProvider);
     final notifier = ref.read(tagsListControllerProvider.notifier);
+    final router = GoRouter.of(context);
 
     return Scaffold(
       appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            // Check if we can navigate back in GoRouter
+            if (router.canPop()) {
+              router.pop();
+            } else {
+              context.go('/home');
+            }
+          },
+        ),
         title: const Text('Manage Tags'),
-        backgroundColor: Colors.blue,
+        backgroundColor: const Color(0xFF3B82F6),
+        foregroundColor: Colors.white,
       ),
       body: Padding(
         padding: const EdgeInsets.all(12),
