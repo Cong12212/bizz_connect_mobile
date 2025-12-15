@@ -13,22 +13,17 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     
-    - name: Setup Flutter (master channel)
+    - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        channel: 'master'  # ← Đổi sang master channel
+        flutter-version: '3.27.1'
+        channel: 'stable'
         cache: true
-    
-    - name: Verify Flutter
-      run: |
-        flutter --version
-        flutter doctor -v
     
     - name: Get dependencies
       run: flutter pub get
     
-    - name: Run build_runner
-      run: flutter pub run build_runner build --delete-conflicting-outputs
+    # ← BỎ bước build_runner
     
     - name: Build Flutter Web
       run: flutter build web --release --web-renderer canvaskit --base-href="/application/"
