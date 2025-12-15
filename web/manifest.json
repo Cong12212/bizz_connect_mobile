@@ -1,7 +1,7 @@
 {
     "name": "bizz_connect_mobile",
     "short_name": "bizz_connect_mobile",
-    "start_url": ".",
+    "start_url": "/application/",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
