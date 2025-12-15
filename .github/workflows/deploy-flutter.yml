@@ -1,91 +1,92 @@
 name: Deploy Flutter Web
 
 on:
-    push:
-        branches: [main]
-    workflow_dispatch:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-
-        steps:
-            - name: Checkout code
-              uses: actions/checkout@v4
-
-            - name: Setup Flutter (master channel)
-              uses: subosito/flutter-action@v2
-              with:
-                  channel: "master" # ← Master channel có Dart SDK mới nhất
-                  cache: true
-
-            - name: Verify Flutter
-              run: |
-                  flutter --version
-                  flutter doctor -v
-
-            - name: Get dependencies
-              run: flutter pub get
-
-            - name: Build Flutter Web
-              run: flutter build web --release --web-renderer canvaskit --base-href="/application/"
-
-            - name: Setup SSH key
-              run: |
-                  mkdir -p ~/.ssh
-                  echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-                  chmod 600 ~/.ssh/id_rsa
-                  ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
-
-            - name: Deploy to Hostinger
-              run: |
-                  rsync -avz --progress --delete \
-                    -e "ssh -p ${{ secrets.SSH_PORT }} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
-                    build/web/ ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/u564264509/domains/biz-connect.online/public_html/application/
-
-            - name: Setup .htaccess
-              uses: appleboy/ssh-action@master
-              with:
-                  host: ${{ secrets.SSH_HOST }}
-                  port: ${{ secrets.SSH_PORT }}
-                  username: ${{ secrets.SSH_USERNAME }}
-                  key: ${{ secrets.SSH_PRIVATE_KEY }}
-                  script: |
-                      cd /home/u564264509/domains/biz-connect.online/public_html/application
-
-                      cat > .htaccess << 'EOF'
-                      <IfModule mod_rewrite.c>
-                          RewriteEngine On
-                          RewriteBase /application/
-                          
-                          RewriteCond %{REQUEST_FILENAME} !-f
-                          RewriteCond %{REQUEST_FILENAME} !-d
-                          RewriteRule ^(.*)$ index.html [L]
-                      </IfModule>
-
-                      <IfModule mod_headers.c>
-                          Header set Access-Control-Allow-Origin "*"
-                      </IfModule>
-
-                      <IfModule mod_expires.c>
-                          ExpiresActive On
-                          ExpiresByType image/jpg "access plus 1 year"
-                          ExpiresByType image/jpeg "access plus 1 year"
-                          ExpiresByType image/gif "access plus 1 year"
-                          ExpiresByType image/png "access plus 1 year"
-                          ExpiresByType image/webp "access plus 1 year"
-                          ExpiresByType image/svg+xml "access plus 1 year"
-                          ExpiresByType text/css "access plus 1 month"
-                          ExpiresByType application/javascript "access plus 1 month"
-                          ExpiresByType application/wasm "access plus 1 year"
-                      </IfModule>
-
-                      <IfModule mod_mime.c>
-                          AddType application/wasm .wasm
-                          AddType application/javascript .js
-                      </IfModule>
-                      EOF
-
-                      chmod 644 .htaccess
-
-                      echo "===== Deployed to https://biz-connect.online/application/ ====="
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Flutter (master channel)
+      uses: subosito/flutter-action@v2
+      with:
+        channel: 'master'
+        cache: true
+    
+    - name: Verify Flutter
+      run: |
+        flutter --version
+        flutter doctor -v
+    
+    - name: Get dependencies
+      run: flutter pub get
+    
+    - name: Build Flutter Web
+      run: flutter build web --release --base-href="/application/"
+      # ← BỎ --web-renderer canvaskit
+    
+    - name: Setup SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+    
+    - name: Deploy to Hostinger
+      run: |
+        rsync -avz --progress --delete \
+          -e "ssh -p ${{ secrets.SSH_PORT }} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no" \
+          build/web/ ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/home/u564264509/domains/biz-connect.online/public_html/application/
+    
+    - name: Setup .htaccess
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SSH_HOST }}
+        port: ${{ secrets.SSH_PORT }}
+        username: ${{ secrets.SSH_USERNAME }}
+        key: ${{ secrets.SSH_PRIVATE_KEY }}
+        script: |
+          cd /home/u564264509/domains/biz-connect.online/public_html/application
+          
+          cat > .htaccess << 'EOF'
+          <IfModule mod_rewrite.c>
+              RewriteEngine On
+              RewriteBase /application/
+              
+              RewriteCond %{REQUEST_FILENAME} !-f
+              RewriteCond %{REQUEST_FILENAME} !-d
+              RewriteRule ^(.*)$ index.html [L]
+          </IfModule>
+          
+          <IfModule mod_headers.c>
+              Header set Access-Control-Allow-Origin "*"
+          </IfModule>
+          
+          <IfModule mod_expires.c>
+              ExpiresActive On
+              ExpiresByType image/jpg "access plus 1 year"
+              ExpiresByType image/jpeg "access plus 1 year"
+              ExpiresByType image/gif "access plus 1 year"
+              ExpiresByType image/png "access plus 1 year"
+              ExpiresByType image/webp "access plus 1 year"
+              ExpiresByType image/svg+xml "access plus 1 year"
+              ExpiresByType text/css "access plus 1 month"
+              ExpiresByType application/javascript "access plus 1 month"
+              ExpiresByType application/wasm "access plus 1 year"
+          </IfModule>
+          
+          <IfModule mod_mime.c>
+              AddType application/wasm .wasm
+              AddType application/javascript .js
+          </IfModule>
+          EOF
+          
+          chmod 644 .htaccess
+          
+          echo "===== Deployed to https://biz-connect.online/application/ ====="
