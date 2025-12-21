@@ -28,6 +28,7 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
   OverlayEntry? _sortEntry;
   final ScrollController _scrollController = ScrollController();
   bool _isLoadingMore = false;
+  Contact? _selectedContact; // Add selected contact for web view
 
   @override
   void initState() {
@@ -96,12 +97,17 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
   }
 
   Future<void> _openViewModal(Contact c) async {
+    // On web/large screen, show in right panel instead of modal
+    if (MediaQuery.of(context).size.width >= 768) {
+      setState(() => _selectedContact = c);
+      return;
+    }
+
     final updated = await showDialog<Contact?>(
       context: context,
       builder: (_) => ContactDetailModal.initialView(contact: c),
     );
 
-    // Just reload if updated
     if (updated != null && mounted) {
       await ref.read(contactsListControllerProvider.notifier).load();
     }
@@ -130,9 +136,10 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
     final current = ref.read(contactsListControllerProvider).sort;
 
     final buttonBox = buttonContext.findRenderObject() as RenderBox;
-    final overlayBox =
-        Navigator.of(buttonContext).overlay!.context.findRenderObject()
-            as RenderBox;
+    final overlayBox = Navigator.of(buttonContext)
+        .overlay!
+        .context
+        .findRenderObject() as RenderBox;
     final buttonTopLeft = buttonBox.localToGlobal(
       Offset.zero,
       ancestor: overlayBox,
@@ -334,6 +341,8 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
   Widget build(BuildContext context) {
     super.build(context);
     final state = ref.watch(contactsListControllerProvider);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isLargeScreen = screenWidth >= 768;
 
     final toolbar = SizedBox(
       height: 64,
@@ -346,42 +355,48 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
         child: Row(
           children: [
             Expanded(
-              child: TextField(
-                controller: _qCtrl,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
-                decoration: InputDecoration(
-                  hintText: 'Search name, email, phone…',
-                  hintStyle: const TextStyle(
-                    color: Color(0xFFD1D5DB),
-                    fontSize: 14,
-                  ),
-                  prefixIcon: const Icon(
-                    Icons.search,
-                    size: 20,
-                    color: Color(0xFF9CA3AF),
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(
-                      color: Color(0xFF3B82F6),
-                      width: 1.5,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: isLargeScreen ? 400 : double.infinity,
+                ),
+                child: TextField(
+                  controller: _qCtrl,
+                  style:
+                      const TextStyle(fontSize: 14, color: Color(0xFF111827)),
+                  decoration: InputDecoration(
+                    hintText: 'Search name, email, phone…',
+                    hintStyle: const TextStyle(
+                      color: Color(0xFFD1D5DB),
+                      fontSize: 14,
                     ),
+                    prefixIcon: const Icon(
+                      Icons.search,
+                      size: 20,
+                      color: Color(0xFF9CA3AF),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(
+                        color: Color(0xFF3B82F6),
+                        width: 1.5,
+                      ),
+                    ),
+                    isDense: true,
+                    fillColor: Colors.white,
+                    filled: true,
                   ),
-                  isDense: true,
-                  fillColor: Colors.white,
-                  filled: true,
                 ),
               ),
             ),
@@ -463,13 +478,13 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
                     ),
                   )
                 : state.items.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No results',
-                      style: TextStyle(color: Color(0xFF64748B)),
-                    ),
-                  )
-                : _buildGroupedList(state),
+                    ? const Center(
+                        child: Text(
+                          'No results',
+                          style: TextStyle(color: Color(0xFF64748B)),
+                        ),
+                      )
+                    : _buildGroupedList(state),
           ),
         ),
       ],
@@ -478,43 +493,272 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
-        child: SizedBox.expand(
-          child: Column(
-            children: [
-              toolbar,
-              Expanded(
-                child: LayoutBuilder(
-                  builder: (ctx, cts) {
-                    final maxW = cts.maxWidth;
-                    final leftW = maxW < 768 ? maxW : 420.0;
-                    return Row(
-                      children: [
-                        SizedBox(
-                          width: leftW,
-                          child: DecoratedBox(
-                            decoration: const BoxDecoration(
-                              color: Colors.white,
-                              border: Border(
+        child: Column(
+          children: [
+            toolbar,
+            Expanded(
+              child: Row(
+                children: [
+                  // Left panel - Contact list
+                  SizedBox(
+                    width: isLargeScreen ? 420 : screenWidth,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: isLargeScreen
+                            ? const Border(
                                 right: BorderSide(color: Color(0xFFE5E7EB)),
+                              )
+                            : null,
+                      ),
+                      child: list,
+                    ),
+                  ),
+                  // Right panel - Detail view (only on large screens)
+                  if (isLargeScreen)
+                    Expanded(
+                      child: _selectedContact != null
+                          ? _buildDetailView(_selectedContact!)
+                          : Container(
+                              color: const Color(0xFFF8FAFC),
+                              child: const Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.person_outline,
+                                      size: 64,
+                                      color: Color(0xFFD1D5DB),
+                                    ),
+                                    SizedBox(height: 16),
+                                    Text(
+                                      'Select a contact to view details',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        color: Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            child: SizedBox.expand(
-                              // 👈 đảm bảo nhận full chiều cao khả dụng
-                              child:
-                                  list, // (Column có Expanded bên trong giờ mới hợp lệ)
-                            ),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailView(Contact contact) {
+    return Container(
+      color: Colors.white,
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              _Avatar(name: contact.name ?? ''),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      contact.name ?? '',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF111827),
+                      ),
+                    ),
+                    if (contact.jobTitle != null || contact.company != null)
+                      Text(
+                        [contact.jobTitle, contact.company]
+                            .where((e) => e != null && e.isNotEmpty)
+                            .join(' at '),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, color: Color(0xFF6B7280)),
+                onPressed: () => setState(() => _selectedContact = null),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          const Divider(color: Color(0xFFE5E7EB)),
+          const SizedBox(height: 24),
+          if (contact.email != null && contact.email!.isNotEmpty) ...[
+            _InfoRow(
+              icon: Icons.email_outlined,
+              label: 'Email',
+              value: contact.email!,
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (contact.phone != null && contact.phone!.isNotEmpty) ...[
+            _InfoRow(
+              icon: Icons.phone_outlined,
+              label: 'Phone',
+              value: contact.phone!,
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (contact.company != null && contact.company!.isNotEmpty) ...[
+            _InfoRow(
+              icon: Icons.business_outlined,
+              label: 'Company',
+              value: contact.company!,
+            ),
+            const SizedBox(height: 16),
+          ],
+          if (contact.tags != null && contact.tags!.isNotEmpty) ...[
+            const Text(
+              'Tags',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: contact.tags!.map((tag) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0xFFBFDBFE)),
+                  ),
+                  child: Text(
+                    '#${tag.name ?? ''}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF2563EB),
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+          const Spacer(),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  label: const Text('Edit'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF3B82F6),
+                    side: const BorderSide(color: Color(0xFF3B82F6)),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  onPressed: () async {
+                    final updated = await showDialog<Contact?>(
+                      context: context,
+                      builder: (_) => ContactDetailModal.initialView(
+                        contact: contact,
+                      ),
+                    );
+                    if (updated != null && mounted) {
+                      setState(() => _selectedContact = updated);
+                      await ref
+                          .read(contactsListControllerProvider.notifier)
+                          .load();
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Delete'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed: () async {
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (dialogCtx) => AlertDialog(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        backgroundColor: Colors.white,
+                        contentPadding: const EdgeInsets.all(24),
+                        title: const Text(
+                          'Delete Contact',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF111827),
                           ),
                         ),
-                        if (maxW >= 768)
-                          const Expanded(child: SizedBox.expand()),
-                      ],
+                        content: const Text(
+                          'Are you sure you want to delete this contact?',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                        actions: [
+                          OutlinedButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(false),
+                            child: const Text('Cancel'),
+                          ),
+                          FilledButton(
+                            onPressed: () => Navigator.of(dialogCtx).pop(true),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFFDC2626),
+                            ),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
                     );
+
+                    if (ok == true && mounted) {
+                      await ref
+                          .read(contactsListControllerProvider.notifier)
+                          .deleteContact(contact.id);
+                      setState(() => _selectedContact = null);
+                      if (mounted) {
+                        await ref
+                            .read(contactsListControllerProvider.notifier)
+                            .load();
+                      }
+                    }
                   },
                 ),
               ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }
@@ -583,9 +827,8 @@ class _ContactsPageState extends ConsumerState<ContactsPage>
 
   String _getGroupHeader(Contact contact, String sort) {
     if (sort == 'name') {
-      final firstChar = contact.name.isNotEmpty
-          ? contact.name[0].toUpperCase()
-          : '#';
+      final firstChar =
+          contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '#';
       return firstChar;
     } else {
       // Group by date (-id for newest)
@@ -833,6 +1076,52 @@ class _Avatar extends StatelessWidget {
         initials,
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20, color: const Color(0xFF6B7280)),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF6B7280),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: Color(0xFF111827),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
